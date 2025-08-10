@@ -211,6 +211,11 @@ If you can answer the question directly with your existing knowledge or after us
 
         let currentAssistantMessageElement = null; // To update the streaming message
         let embedder = null; // In-browser embedding model
+
+        // Fix: Declare engine here so it's defined when initializeModels is called
+        const engine = new webllm.MLCEngine();
+        engine.setInitProgressCallback(updateEngineInitProgressCallback);
+
         let miniTableIndexEmbeddings = []; // Stores { tableId: "users", text: "...", embedding: [...] }
         let detailedSchemaEmbeddings = []; // Stores { tableId: "users", chunkId: "col_details", text: "...", embedding: [...] }
 
