@@ -176,7 +176,7 @@
 
     <script type="module">
         import * as webllm from "https://esm.run/@mlc-ai/web-llm";
-        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
 
         /*************** WebLLM Logic & RAG Components ***************/
 
@@ -218,8 +218,23 @@ If you can answer the question directly with your existing knowledge or after us
     // 1. transformers:webgpu  2. transformers:webgl  3. webllm:webgpu  4. transformers:wasm
     let chatBackend = null;
     let textGenPipeline = null; // transformers.js pipeline instance
-    const TRANSFORMERS_MODEL = 'Xenova/Qwen2.5-0.5B-Instruct'; // Adjust for size/perf; can swap to smaller model
-    const SMALLER_MODEL_HINT = 'Xenova/SmolLM2-360M-Instruct';
+        // Candidate models (ordered). We rotate until one loads. Prefer fully open, ungated models first.
+        const TRANSFORMERS_MODEL_CANDIDATES = [
+            'Xenova/SmolLM2-360M-Instruct', // small, permissive
+            'Xenova/Qwen2.5-0.5B-Instruct',  // may require accepting license or token
+            'Xenova/gpt2' // fallback tiny (non-instruct, but ensures something works)
+        ];
+        const SMALLER_MODEL_HINT = 'Xenova/SmolLM2-360M-Instruct';
+        let chosenTransformersModel = null;
+
+        // Allow user to inject HF token before loading (e.g., window.HF_TOKEN = 'hf_xxx'; before this script)
+        if (window.HF_TOKEN) {
+            env.HF_ACCESS_TOKEN = window.HF_TOKEN;
+        }
+        // Ensure remote huggingface URL (avoid accidental local mirror attempts). Can be customized.
+        env.remoteURL = 'https://huggingface.co';
+        // Disable local model resolution attempts to avoid 404 on /models/* when self-hosting without copies.
+        env.allowLocalModels = false;
 
         let miniTableIndexEmbeddings = []; // Stores { tableId: "users", text: "...", embedding: [...] }
         let detailedSchemaEmbeddings = []; // Stores { tableId: "users", chunkId: "col_details", text: "...", embedding: [...] }
@@ -404,22 +419,32 @@ If you can answer the question directly with your existing knowledge or after us
             console.log('Backend availability:', { hasWebGPU, hasWebGL2 });
 
             // Attempt order: transformers webgpu -> transformers webgl -> webllm -> transformers wasm
+            const modelLoadErrors = [];
             async function tryTransformers(deviceTag) {
-                try {
-                    downloadStatus.textContent = `Loading transformers (${deviceTag}) model...`;
-                    const opts = {};
-                    // device selection hint (API may evolve; ignored if unsupported)
-                    opts.device = deviceTag.startsWith('web') ? 'gpu' : 'cpu';
-                    // quantization hint (lower memory where supported)
-                    opts.quantized = true;
-                    textGenPipeline = await pipeline('text-generation', TRANSFORMERS_MODEL, opts);
-                    chatBackend = `transformers-${deviceTag}`;
-                    console.log(`Loaded transformers model on ${deviceTag}`);
-                    return true;
-                } catch (e) {
-                    console.warn(`Transformers ${deviceTag} load failed:`, e);
-                    return false;
+                for (const modelId of TRANSFORMERS_MODEL_CANDIDATES) {
+                    try {
+                        downloadStatus.textContent = `Loading ${modelId} (${deviceTag})...`;
+                        const opts = { quantized: true };
+                        opts.device = deviceTag.startsWith('web') ? 'gpu' : (deviceTag === 'wasm' ? 'cpu' : 'cpu');
+                        textGenPipeline = await pipeline('text-generation', modelId, opts);
+                        chatBackend = `transformers-${deviceTag}`;
+                        chosenTransformersModel = modelId;
+                        console.log(`Loaded transformers model '${modelId}' on ${deviceTag}`);
+                        return true;
+                    } catch (e) {
+                        const msg = (e?.message || '').toLowerCase();
+                        let short = e.message;
+                        if (msg.includes('unauthorized')) {
+                            short += ' (Likely gated model; set window.HF_TOKEN before loading or choose an open model)';
+                        } else if (msg.includes('404')) {
+                            short += ' (Resource not found; if self-hosting assets, ensure files exist)';
+                        }
+                        modelLoadErrors.push({ device: deviceTag, model: modelId, error: short });
+                        console.warn(`Transformers load failed for ${modelId} on ${deviceTag}:`, e);
+                        // Try next model candidate
+                    }
                 }
+                return false; // none loaded
             }
 
             let initialized = false;
@@ -485,8 +510,18 @@ If you can answer the question directly with your existing knowledge or after us
             sendButton.disabled = false;
             userInput.disabled = false;
             userInput.setAttribute('placeholder', slow ? 'Type (CPU fallback, slower)...' : 'Type a message...');
-            appendMessage({ role: 'system', content: `AI (${backendLabel}): Ready. Ask about the SQL schema. ${slow ? 'Consider a smaller model ('+SMALLER_MODEL_HINT+') for speed.' : ''}` });
-            downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
+            if (chosenTransformersModel) {
+                appendMessage({ role: 'system', content: `AI (${backendLabel}/${chosenTransformersModel}): Ready. Ask about the SQL schema. ${slow ? 'Consider a smaller model ('+SMALLER_MODEL_HINT+') for speed.' : ''}` });
+                downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
+            } else if (backendLabel === 'webllm') {
+                appendMessage({ role: 'system', content: `AI (${backendLabel}): Ready. Ask about the SQL schema.` });
+                downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
+            } else {
+                // Provide a concise summary of failures
+                const lines = modelLoadErrors.map(e => `- ${e.model} on ${e.device}: ${e.error}`).slice(0,6).join('\n');
+                downloadStatus.textContent = 'Warning: Model loaded without ID label.';
+                appendMessage({ role: 'system', content: `Model resolution issues encountered. Attempts summary:\n${lines}` });
+            }
         }
 
 
@@ -565,7 +600,7 @@ If you can answer the question directly with your existing knowledge or after us
                     updateLastAssistantMessage('🧠 Gathering relevant schema context...');
                     const ragContext = await performRagLookup(input) || 'No directly relevant schema rows found.';
                     const prompt = `${systemMessageContent}\n\nUser question: ${input}\n\nRelevant schema context:\n${ragContext}\n\nAnswer:`;
-                    updateLastAssistantMessage(`✍️ Generating answer (${chatBackend})...`);
+                    updateLastAssistantMessage(`✍️ Generating answer (${chatBackend}${chosenTransformersModel? '/' + chosenTransformersModel: ''})...`);
                     const result = await textGenPipeline(prompt, {
                         max_new_tokens: 220,
                         temperature: 0.7,
