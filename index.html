@@ -212,9 +212,8 @@ If you can answer the question directly with your existing knowledge or after us
         let currentAssistantMessageElement = null; // To update the streaming message
         let embedder = null; // In-browser embedding model
 
-        // Fix: Declare engine here so it's defined when initializeModels is called
-        const engine = new webllm.MLCEngine();
-        engine.setInitProgressCallback(updateEngineInitProgressCallback);
+        // Fix: Declare engine as 'let' at module scope. It will be instantiated inside initializeModels.
+        let engine;
 
         let miniTableIndexEmbeddings = []; // Stores { tableId: "users", text: "...", embedding: [...] }
         let detailedSchemaEmbeddings = []; // Stores { tableId: "users", chunkId: "col_details", text: "...", embedding: [...] }
@@ -393,6 +392,12 @@ If you can answer the question directly with your existing knowledge or after us
         async function initializeModels() {
             downloadStatus.classList.remove("hidden");
             downloadStatus.textContent = "Loading WebLLM and Embedding Models...";
+
+            // Instantiate engine here, ensuring webllm is fully loaded
+            // This is the fix for "engine not defined"
+            engine = new webllm.MLCEngine();
+            engine.setInitProgressCallback(updateEngineInitProgressCallback);
+
 
             // 1. Load WebLLM (main chat model)
             let selectedModel = null;
