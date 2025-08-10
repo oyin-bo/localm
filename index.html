@@ -159,15 +159,70 @@
         .hidden {
             display: none!important;
         }
+
+        .controls {
+            padding: 8px 12px;
+            background:#fafafa;
+            border-bottom:1px solid #eee;
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+            align-items:center;
+            font-size:0.75rem;
+        }
+        .controls input[type=text] {
+            padding:4px 8px;
+            border:1px solid #ccc;
+            border-radius:6px;
+            font-size:0.75rem;
+        }
+        .controls button, .controls select {
+            padding:4px 10px;
+            font-size:0.7rem;
+            border:1px solid #ccc;
+            border-radius:6px;
+            background:#fff;
+            cursor:pointer;
+        }
+        .controls button:hover { background:#f0f0f0; }
+        #diagnostics {
+            max-height:120px;
+            overflow:auto;
+            font-family:monospace;
+            background:#1e1e1e;
+            color:#c9d1d9;
+            padding:6px 8px;
+            font-size:0.65rem;
+            border-top:1px solid #333;
+            display:none;
+            white-space:pre-wrap;
+        }
+        #diagnostics.show { display:block; }
     </style>
 </head>
 <body>
     <div id="chat-container">
         <h1>In-Browser LLM Chat with RAG</h1>
+        <div class="controls">
+            <label>HF Token:
+                <input type="text" id="hf-token" placeholder="hf_... (optional)" size="18" autocomplete="off" />
+            </label>
+            <button id="apply-token" title="Store token (localStorage) & reload">Apply Token + Reload</button>
+            <select id="preferred-backend" title="Preferred first backend">
+                <option value="transformers-webgpu">TF WebGPU</option>
+                <option value="transformers-webgl">TF WebGL</option>
+                <option value="webllm">WebLLM</option>
+                <option value="transformers-wasm">TF WASM</option>
+            </select>
+            <button id="force-reload" title="Reinitialize models">Reload Models</button>
+            <button id="toggle-diagnostics" title="Show/Hide diagnostics">Diagnostics</button>
+            <span id="active-backend" style="margin-left:auto;font-weight:bold;">backend: -</span>
+        </div>
         <div id="download-status" class="status-message">Loading model...</div>
         <div id="chat-box">
             </div>
         <div id="chat-stats" class="chat-stats hidden"></div>
+        <div id="diagnostics"></div>
         <div class="chat-input-container">
             <input type="text" id="user-input" placeholder="Loading models for RAG..." disabled>
             <button id="send" disabled>Send</button>
@@ -208,6 +263,13 @@ If you can answer the question directly with your existing knowledge or after us
         const sendButton = document.getElementById("send");
         const downloadStatus = document.getElementById("download-status");
         const chatStats = document.getElementById("chat-stats");
+    const diagnosticsEl = document.getElementById('diagnostics');
+    const tokenInput = document.getElementById('hf-token');
+    const applyTokenBtn = document.getElementById('apply-token');
+    const forceReloadBtn = document.getElementById('force-reload');
+    const toggleDiagBtn = document.getElementById('toggle-diagnostics');
+    const backendSelect = document.getElementById('preferred-backend');
+    const activeBackendLabel = document.getElementById('active-backend');
 
         let currentAssistantMessageElement = null; // To update the streaming message
         let embedder = null; // In-browser embedding model
@@ -230,6 +292,12 @@ If you can answer the question directly with your existing knowledge or after us
         // Allow user to inject HF token before loading (e.g., window.HF_TOKEN = 'hf_xxx'; before this script)
         if (window.HF_TOKEN) {
             env.HF_ACCESS_TOKEN = window.HF_TOKEN;
+        }
+        // Load token from localStorage if present
+        const savedToken = localStorage.getItem('HF_TOKEN');
+        if (savedToken && !env.HF_ACCESS_TOKEN) {
+            env.HF_ACCESS_TOKEN = savedToken;
+            tokenInput.value = savedToken.slice(0,12) + '…';
         }
         // Ensure remote huggingface URL (avoid accidental local mirror attempts). Can be customized.
         env.remoteURL = 'https://huggingface.co';
@@ -440,6 +508,7 @@ If you can answer the question directly with your existing knowledge or after us
                             short += ' (Resource not found; if self-hosting assets, ensure files exist)';
                         }
                         modelLoadErrors.push({ device: deviceTag, model: modelId, error: short });
+                        appendDiagnostic(`FAIL ${deviceTag} ${modelId}: ${short}`);
                         console.warn(`Transformers load failed for ${modelId} on ${deviceTag}:`, e);
                         // Try next model candidate
                     }
@@ -448,8 +517,46 @@ If you can answer the question directly with your existing knowledge or after us
             }
 
             let initialized = false;
-            if (!initialized && hasWebGPU) initialized = await tryTransformers('webgpu');
-            if (!initialized && hasWebGL2) initialized = await tryTransformers('webgl');
+            const userPref = backendSelect.value; // may guide attempt ordering
+            const attemptOrder = (() => {
+                const base = ['transformers-webgpu','transformers-webgl','webllm','transformers-wasm'];
+                if (base.includes(userPref)) {
+                    return [userPref, ...base.filter(b=>b!==userPref)];
+                }
+                return base;
+            })();
+            appendDiagnostic('Attempt order: ' + attemptOrder.join(' -> '));
+            for (const step of attemptOrder) {
+                if (initialized) break;
+                if (step === 'transformers-webgpu' && hasWebGPU) initialized = await tryTransformers('webgpu');
+                else if (step === 'transformers-webgl' && hasWebGL2) initialized = await tryTransformers('webgl');
+                else if (step === 'webllm' && hasWebGPU && !initialized) {
+                    try {
+                        appendDiagnostic('Trying WebLLM...');
+                        downloadStatus.textContent = 'Loading WebLLM model (WebGPU)...';
+                        engine = new webllm.MLCEngine();
+                        engine.setInitProgressCallback(updateEngineInitProgressCallback);
+                        let selectedModel = null;
+                        const preferredModelPattern = 'TinyLlama';
+                        const availableModels = webllm.prebuiltAppConfig.model_list;
+                        const suitableModels = availableModels.filter(m => m.model_id.toLowerCase().includes(preferredModelPattern.toLowerCase()) && (m.model_id.includes('q4f16_1-MLC') || m.model_id.includes('q4f32_1-MLC')) && m.model_id.includes('Instruct'));
+                        if (suitableModels.length > 0) { selectedModel = suitableModels[0].model_id; } else {
+                            const fb = ['TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC','Qwen2.5-0.5B-Instruct-q4f16_1-MLC','gemma-2b-it-q4f16_1-MLC','Phi-3.5-mini-instruct-q4f16_1-MLC'];
+                            for (const id of fb) { if (availableModels.find(m => m.model_id === id)) { selectedModel = id; break; } }
+                        }
+                        if (!selectedModel) throw new Error('No WebLLM model found');
+                        await engine.reload(selectedModel, { temperature: 0.7, top_p: 0.9 });
+                        chatBackend = 'webllm';
+                        initialized = true;
+                        appendDiagnostic('WebLLM loaded: ' + selectedModel);
+                    } catch (e) {
+                        appendDiagnostic('WebLLM failed: ' + e.message);
+                        console.warn('WebLLM load failed:', e);
+                    }
+                } else if (step === 'transformers-wasm' && !initialized) {
+                    initialized = await tryTransformers('wasm');
+                }
+            }
 
             // WebLLM attempt (only if not already have transformers GPU/WebGL and WebGPU present)
             if (!initialized && hasWebGPU) {
@@ -477,12 +584,11 @@ If you can answer the question directly with your existing knowledge or after us
 
             // Final fallback: transformers wasm (CPU)
             if (!initialized) {
-                const ok = await tryTransformers('wasm');
-                if (!ok) {
-                    downloadStatus.textContent = 'All model backend attempts failed. See console for details.';
-                    return;
-                }
-                initialized = true;
+                downloadStatus.textContent = 'All model backend attempts failed. See diagnostics.';
+                activeBackendLabel.textContent = 'backend: failed';
+                diagnosticsEl.classList.add('show');
+                appendDiagnostic('FINAL: All attempts failed. Provide HF token if 401, or pick smaller model.');
+                return;
             }
 
             // Embeddings (shared)
@@ -511,16 +617,13 @@ If you can answer the question directly with your existing knowledge or after us
             userInput.disabled = false;
             userInput.setAttribute('placeholder', slow ? 'Type (CPU fallback, slower)...' : 'Type a message...');
             if (chosenTransformersModel) {
-                appendMessage({ role: 'system', content: `AI (${backendLabel}/${chosenTransformersModel}): Ready. Ask about the SQL schema. ${slow ? 'Consider a smaller model ('+SMALLER_MODEL_HINT+') for speed.' : ''}` });
+                appendMessage({ role: 'system', content: `AI (${backendLabel}/${chosenTransformersModel}): Ready. Ask about the SQL schema. ${slow ? 'Consider smaller model ('+SMALLER_MODEL_HINT+') for speed.' : ''}` });
                 downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
+                activeBackendLabel.textContent = `backend: ${backendLabel}`;
             } else if (backendLabel === 'webllm') {
                 appendMessage({ role: 'system', content: `AI (${backendLabel}): Ready. Ask about the SQL schema.` });
                 downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
-            } else {
-                // Provide a concise summary of failures
-                const lines = modelLoadErrors.map(e => `- ${e.model} on ${e.device}: ${e.error}`).slice(0,6).join('\n');
-                downloadStatus.textContent = 'Warning: Model loaded without ID label.';
-                appendMessage({ role: 'system', content: `Model resolution issues encountered. Attempts summary:\n${lines}` });
+                activeBackendLabel.textContent = `backend: ${backendLabel}`;
             }
         }
 
@@ -601,25 +704,49 @@ If you can answer the question directly with your existing knowledge or after us
                     const ragContext = await performRagLookup(input) || 'No directly relevant schema rows found.';
                     const prompt = `${systemMessageContent}\n\nUser question: ${input}\n\nRelevant schema context:\n${ragContext}\n\nAnswer:`;
                     updateLastAssistantMessage(`✍️ Generating answer (${chatBackend}${chosenTransformersModel? '/' + chosenTransformersModel: ''})...`);
-                    const result = await textGenPipeline(prompt, {
-                        max_new_tokens: 220,
-                        temperature: 0.7,
-                        top_p: 0.9,
-                        repetition_penalty: 1.05,
-                    });
-                    // transformers.js returns an array with generated_text
-                    const gen = Array.isArray(result) ? result[0]?.generated_text || '' : (result.generated_text || '');
-                    // Extract only the assistant portion after 'Answer:' to reduce prompt echo
-                    const answer = gen.split('Answer:').slice(1).join('Answer:').trim() || gen.trim();
-                    updateLastAssistantMessage(answer);
-                    messages.push({ content: answer, role: 'assistant' });
-                    chatStats.classList.add('hidden'); // No detailed runtime stats for fallback
+                    let streamedAnswer = '';
+                    try {
+                        const result = await textGenPipeline(prompt, {
+                            max_new_tokens: 220,
+                            temperature: 0.7,
+                            top_p: 0.9,
+                            repetition_penalty: 1.05,
+                            callback_function: (data) => {
+                                if (data?.token?.text) {
+                                    streamedAnswer += data.token.text;
+                                    // Avoid dumping the entire prompt back (strip if echo)
+                                    const splitIdx = streamedAnswer.lastIndexOf('Answer:');
+                                    const display = splitIdx !== -1 ? streamedAnswer.slice(splitIdx + 7).trimStart() : streamedAnswer;
+                                    updateLastAssistantMessage(display);
+                                }
+                            }
+                        });
+                        // Final extraction (if callback incomplete)
+                        let finalText;
+                        if (Array.isArray(result)) {
+                            finalText = result[0]?.generated_text || streamedAnswer;
+                        } else {
+                            finalText = result.generated_text || streamedAnswer;
+                        }
+                        const answer = (() => {
+                            const parts = finalText.split('Answer:');
+                            if (parts.length > 1) return parts.slice(1).join('Answer:').trim();
+                            return finalText.replace(prompt,'').trim();
+                        })();
+                        updateLastAssistantMessage(answer);
+                        messages.push({ content: answer, role: 'assistant' });
+                    } catch(genErr) {
+                        updateLastAssistantMessage('Generation error: ' + genErr.message);
+                        appendDiagnostic('Generation error: ' + genErr.stack);
+                    }
+                    chatStats.classList.add('hidden');
                 } else {
                     updateLastAssistantMessage('No active backend. Initialization error.');
                 }
             } catch (error) {
                 updateLastAssistantMessage(`Error: ${error.message}`);
                 console.error('Error during chat handling:', error);
+                appendDiagnostic('Chat error: ' + error.stack);
             } finally {
                 sendButton.disabled = false;
                 userInput.disabled = false;
@@ -628,6 +755,24 @@ If you can answer the question directly with your existing knowledge or after us
                 currentAssistantMessageElement = null;
             }
         }
+
+        // Diagnostics helper
+        function appendDiagnostic(line) {
+            const ts = new Date().toISOString().split('T')[1].replace('Z','');
+            diagnosticsEl.textContent += `[${ts}] ${line}\n`;
+            diagnosticsEl.scrollTop = diagnosticsEl.scrollHeight;
+        }
+
+        // Control events
+        applyTokenBtn.addEventListener('click', () => {
+            const raw = prompt('Enter HF token (starts with hf_). This will be stored locally (clearable).');
+            if (raw && raw.startsWith('hf_')) {
+                localStorage.setItem('HF_TOKEN', raw);
+                window.location.reload();
+            }
+        });
+        forceReloadBtn.addEventListener('click', () => window.location.reload());
+        toggleDiagBtn.addEventListener('click', () => diagnosticsEl.classList.toggle('show'));
 
         // Event Listeners
         sendButton.addEventListener("click", onMessageSend);
