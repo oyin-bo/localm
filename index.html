@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyLLM In-Browser Chat with RAG</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        #chat-container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 80vh;
+            max-height: 95vh;
+            position: relative;
+        }
+
+        h1 {
+            text-align: center;
+            color: #4a4a4a;
+            padding: 15px;
+            margin: 0;
+            border-bottom: 1px solid #eee;
+            font-size: 1.5em;
+        }
+
+        .status-message {
+            text-align: center;
+            padding: 10px;
+            background-color: #e0f7fa;
+            color: #00796b;
+            font-weight: bold;
+            border-bottom: 1px solid #b2ebf2;
+        }
+
+        #chat-box {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message-container {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        .message-container.user {
+            align-self: flex-end;
+            align-items: flex-end;
+        }
+
+        .message-container.assistant {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+
+        .message-container.system {
+            align-self: center; /* Center system messages */
+            align-items: center;
+            font-size: 0.85em;
+            color: #666;
+            text-align: center;
+            padding: 5px 10px;
+            border-radius: 10px;
+            background-color: #f0f0f0;
+            margin: 5px 0;
+        }
+
+        .message-bubble {
+            padding: 10px 15px;
+            border-radius: 20px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            white-space: pre-wrap; /* Preserve whitespace and line breaks */
+        }
+
+        .message-container.user .message-bubble {
+            background-color: #007bff;
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message-container.assistant .message-bubble {
+            background-color: #e9e9eb;
+            color: #333;
+            border-bottom-left-radius: 5px;
+        }
+
+        .chat-input-container {
+            display: flex;
+            padding: 15px;
+            border-top: 1px solid #eee;
+            background-color: #fff;
+            gap: 10px;
+        }
+
+        #user-input {
+            flex-grow: 1;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-size: 1em;
+            outline: none;
+        }
+
+        #user-input:focus {
+            border-color: #007bff;
+        }
+
+        #send {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s;
+        }
+
+        #send:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        #send:disabled {
+            background-color: #a0c9ff;
+            cursor: not-allowed;
+        }
+
+        .chat-stats {
+            font-size: 0.8em;
+            color: #666;
+            text-align: right;
+            padding: 5px 20px;
+            background-color: #f9f9f9;
+            border-top: 1px solid #eee;
+        }
+
+        .hidden {
+            display: none!important;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <h1>In-Browser LLM Chat with RAG</h1>
+        <div id="download-status" class="status-message">Loading model...</div>
+        <div id="chat-box">
+            </div>
+        <div id="chat-stats" class="chat-stats hidden"></div>
+        <div class="chat-input-container">
+            <input type="text" id="user-input" placeholder="Loading models for RAG..." disabled>
+            <button id="send" disabled>Send</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+
+        /*************** WebLLM Logic & RAG Components ***************/
+
+        // System message for the LLM to understand its role and tool use
+        const systemMessageContent = `
+You are an intelligent SQL database schema assistant. Your primary goal is to answer user questions about database tables, their columns, relationships, and provide SQL query suggestions.
+
+You have access to a special "lookup" tool. If you need more specific details about tables or concepts to answer a user's question, you MUST respond with a JSON object in this exact format:
+
+\`\`\`json
+{
+  "action": "lookup_schema_info",
+  "query": "concise natural language phrase describing what schema information you need"
+}
+\`\`\`
+
+Examples of "query" for the lookup_schema_info action:
+- "details about the Users and Products tables"
+- "columns in the Orders table and its related tables"
+- "how Categories table relates to Products"
+
+If you can answer the question directly with your existing knowledge or after using the tool, provide the natural language answer or SQL query. Do NOT use the lookup tool if you already have enough information.
+`.trim(); // Trim to remove leading/trailing whitespace
+
+        const messages = [{ role: "system", content: systemMessageContent }];
+
+        const chatBox = document.getElementById("chat-box");
+        const userInput = document.getElementById("user-input");
+        const sendButton = document.getElementById("send");
+        const downloadStatus = document.getElementById("download-status");
+        const chatStats = document.getElementById("chat-stats");
+
+        let currentAssistantMessageElement = null; // To update the streaming message
+        let embedder = null; // In-browser embedding model
+        let miniTableIndexEmbeddings = []; // Stores { tableId: "users", text: "...", embedding: [...] }
+        let detailedSchemaEmbeddings = []; // Stores { tableId: "users", chunkId: "col_details", text: "...", embedding: [...] }
+
+        // --- Your SQL Table Data ---
+        // This static data represents your knowledge base. In a real app, this might come from a file.
+        const rawSqlSchema = [
+            {
+                name: "Users",
+                summary: "Stores user account details including authentication and profile information.",
+                details: [
+                    "Table `Users` has columns: UserID (PRIMARY KEY, INTEGER), Username (TEXT UNIQUE), Email (TEXT UNIQUE), PasswordHash (TEXT), RegistrationDate (DATETIME).",
+                    "Purpose of `Users` table: Manages user login, identifies individuals, and stores core contact info.",
+                    "Relationships of `Users`: One-to-many with `Orders` (UserID in `Orders` references UserID in `Users`)."
+                ]
+            },
+            {
+                name: "Products",
+                summary: "Lists all available products with descriptions, pricing, and stock.",
+                details: [
+                    "Table `Products` has columns: ProductID (PRIMARY KEY, INTEGER), ProductName (TEXT), Description (TEXT), CategoryID (FOREIGN KEY to Categories.CategoryID, INTEGER).",
+                    "Table `Products` also has columns: Price (DECIMAL), StockQuantity (INTEGER), CreatedDate (DATETIME), LastUpdatedDate (DATETIME).",
+                    "Table `Products` also has columns: ImageURL (TEXT), Weight (DECIMAL), Dimensions (TEXT), ProductStatus (TEXT).",
+                    "Relationships of `Products`: One-to-many with `OrderItems` (ProductID in `OrderItems` references ProductID in `Products`)."
+                ]
+            },
+            {
+                name: "Orders",
+                summary: "Records customer purchase transactions.",
+                details: [
+                    "Table `Orders` has columns: OrderID (PRIMARY KEY, INTEGER), UserID (FOREIGN KEY to Users.UserID, INTEGER), OrderDate (DATETIME), TotalAmount (DECIMAL).",
+                    "Purpose of `Orders` table: Tracks individual customer purchases and their aggregated cost.",
+                    "Relationships of `Orders`: One-to-many with `OrderItems` (OrderID in `OrderItems` references OrderID in `Orders`)."
+                ]
+            },
+            {
+                name: "OrderItems",
+                summary: "Details each item within a specific customer order.",
+                details: [
+                    "Table `OrderItems` has columns: OrderItemID (PRIMARY KEY, INTEGER), OrderID (FOREIGN KEY to Orders.OrderID, INTEGER), ProductID (FOREIGN KEY to Products.ProductID, INTEGER).",
+                    "Table `OrderItems` also has columns: Quantity (INTEGER), UnitPriceAtPurchase (DECIMAL), SubtotalItemAmount (DECIMAL).",
+                    "Purpose of `OrderItems` table: Breaks down an order into its constituent products and quantities."
+                ]
+            },
+            {
+                name: "Categories",
+                summary: "Classifies products into various categories.",
+                details: [
+                    "Table `Categories` has columns: CategoryID (PRIMARY KEY, INTEGER), CategoryName (TEXT UNIQUE), CategoryDescription (TEXT).",
+                    "Purpose of `Categories` table: Helps organize products for easier browsing and filtering.",
+                    "Relationships of `Categories`: One-to-many with `Products` (CategoryID in `Products` references CategoryID in `Categories`)."
+                ]
+            }
+        ];
+
+        // --- Helper Functions ---
+
+        // Callback function for initializing WebLLM progress.
+        function updateEngineInitProgressCallback(report) {
+            console.log("WebLLM Init:", report.progress, report.text);
+            downloadStatus.textContent = report.text;
+        }
+
+        // Helper function to append messages to the chat box
+        function appendMessage(message, isStreaming = false) {
+            const messageContainer = document.createElement("div");
+            messageContainer.classList.add("message-container", message.role);
+
+            // Only create a message bubble for user and assistant messages
+            if (message.role === "user" || message.role === "assistant") {
+                const messageBubble = document.createElement("div");
+                messageBubble.classList.add("message-bubble");
+                messageBubble.textContent = message.content;
+                messageContainer.appendChild(messageBubble);
+            } else {
+                // For system messages, just set the text content directly on the container
+                messageContainer.textContent = message.content;
+            }
+
+            chatBox.appendChild(messageContainer);
+            chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+
+            if (isStreaming && message.role === "assistant") {
+                currentAssistantMessageElement = messageContainer.querySelector(".message-bubble");
+            }
+        }
+
+        // Helper function to update the content of the last assistant message (for streaming)
+        function updateLastAssistantMessage(newContent) {
+            if (currentAssistantMessageElement) {
+                currentAssistantMessageElement.textContent = newContent;
+                chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+            }
+        }
+
+        // Cosine Similarity Function for RAG lookup
+        function cosineSimilarity(vec1, vec2) {
+            if (vec1.length !== vec2.length) {
+                return 0;
+            }
+            let dotProduct = 0;
+            let magnitude1 = 0;
+            let magnitude2 = 0;
+            for (let i = 0; i < vec1.length; i++) {
+                dotProduct += vec1[i] * vec2[i];
+                magnitude1 += vec1[i] * vec1[i];
+                magnitude2 += vec2[i] * vec2[i];
+            }
+            magnitude1 = Math.sqrt(magnitude1);
+            magnitude2 = Math.sqrt(magnitude2);
+            if (magnitude1 === 0 || magnitude2 === 0) {
+                return 0;
+            }
+            return dotProduct / (magnitude1 * magnitude2);
+        }
+
+        // --- RAG Lookup Logic ---
+        async function performRagLookup(query) {
+            if (!embedder || miniTableIndexEmbeddings.length === 0 || detailedSchemaEmbeddings.length === 0) {
+                console.warn("Embedding model or knowledge base not ready for RAG lookup.");
+                return null;
+            }
+
+            try {
+                // Stage 1: Embed user query and identify relevant tables from mini-index
+                const queryEmbeddingOutput = await embedder(query, { pooling: 'mean', normalize: true });
+                const queryEmbedding = queryEmbeddingOutput.data;
+
+                let tableSimilarities = [];
+                for (const tableIndex of miniTableIndexEmbeddings) {
+                    const score = cosineSimilarity(queryEmbedding, tableIndex.embedding);
+                    tableSimilarities.push({ tableId: tableIndex.tableId, score: score });
+                }
+
+                tableSimilarities.sort((a, b) => b.score - a.score);
+                const topRelevantTableIds = tableSimilarities.filter(s => s.score > 0.5).slice(0, 3).map(s => s.tableId); // Top 3 tables with a minimum score
+
+                if (topRelevantTableIds.length === 0) {
+                    console.log("No highly relevant tables identified for query:", query);
+                    return null;
+                }
+                console.log("Identified relevant tables for RAG:", topRelevantTableIds);
+
+                // Stage 2: Filter detailed chunks by relevant tables and re-rank
+                let relevantDetailedChunks = [];
+                const filteredDetailedChunks = detailedSchemaEmbeddings.filter(chunk =>
+                    topRelevantTableIds.includes(chunk.tableId)
+                );
+
+                let chunkSimilarities = [];
+                for (const chunk of filteredDetailedChunks) {
+                    const score = cosineSimilarity(queryEmbedding, chunk.embedding);
+                    chunkSimilarities.push({ chunk: chunk.text, score: score });
+                }
+
+                chunkSimilarities.sort((a, b) => b.score - a.score);
+
+                // Consolidate context: take top N most relevant detailed chunks
+                const maxChunksToInclude = 5; // Limit the number of chunks to manage context window
+                const contextChunks = chunkSimilarities.filter(s => s.score > 0.4).slice(0, maxChunksToInclude).map(s => s.chunk); // Filter by score again
+
+                if (contextChunks.length > 0) {
+                    return contextChunks.join("\n\n---\n\n");
+                } else {
+                    return null; // No relevant chunks found after filtering
+                }
+
+            } catch (error) {
+                console.error("Error during RAG lookup:", error);
+                return null;
+            }
+        }
+
+        // --- Model Initialization ---
+
+        async function initializeModels() {
+            downloadStatus.classList.remove("hidden");
+            downloadStatus.textContent = "Loading WebLLM and Embedding Models...";
+
+            // 1. Load WebLLM (main chat model)
+            let selectedModel = null;
+            const preferredModelPattern = "TinyLlama"; // Try TinyLlama first
+            const availableModels = webllm.prebuiltAppConfig.model_list;
+
+            const suitableModels = availableModels.filter(m =>
+                m.model_id.toLowerCase().includes(preferredModelPattern.toLowerCase()) &&
+                (m.model_id.includes("q4f16_1-MLC") || m.model_id.includes("q4f32_1-MLC")) &&
+                m.model_id.includes("Instruct")
+            );
+
+            if (suitableModels.length > 0) {
+                selectedModel = suitableModels[0].model_id;
+                console.log(`Found preferred chat model: ${selectedModel}`);
+            } else {
+                const fallbackModels = [
+                    "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC",
+                    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+                    "gemma-2b-it-q4f16_1-MLC",
+                    "Phi-3.5-mini-instruct-q4f16_1-MLC",
+                ];
+                for (const fbModelId of fallbackModels) {
+                    const foundFbModel = availableModels.find(m => m.model_id === fbModelId);
+                    if (foundFbModel) {
+                        selectedModel = foundFbModel.model_id;
+                        console.log(`Falling back to chat model: ${selectedModel}`);
+                        break;
+                    }
+                }
+            }
+
+            if (!selectedModel) {
+                downloadStatus.textContent = "Error: No suitable chat model found.";
+                console.error("No suitable chat model found in available models.");
+                return;
+            }
+
+            try {
+                const config = { temperature: 0.7, top_p: 0.9 };
+                await engine.reload(selectedModel, config);
+                downloadStatus.textContent = `Chat Model '${selectedModel}' loaded.`;
+                console.log("WebLLM engine initialized successfully.");
+
+                // 2. Load Embedding Model and Embed Knowledge Base
+                downloadStatus.textContent = "Loading Embedding Model and indexing schema...";
+                embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+                console.log("Embedding model loaded.");
+
+                for (const table of rawSqlSchema) {
+                    // Embed mini-index summary
+                    const summaryOutput = await embedder(table.summary, { pooling: 'mean', normalize: true });
+                    miniTableIndexEmbeddings.push({
+                        tableId: table.name,
+                        text: table.summary,
+                        embedding: summaryOutput.data
+                    });
+
+                    // Embed detailed chunks
+                    for (let i = 0; i < table.details.length; i++) {
+                        const chunkText = table.details[i];
+                        const chunkOutput = await embedder(chunkText, { pooling: 'mean', normalize: true });
+                        detailedSchemaEmbeddings.push({
+                            tableId: table.name,
+                            chunkId: `${table.name}_chunk_${i}`,
+                            text: chunkText,
+                            embedding: chunkOutput.data
+                        });
+                    }
+                }
+                downloadStatus.textContent = "All models loaded and schema indexed. Ready to chat!";
+                sendButton.disabled = false;
+                userInput.disabled = false;
+                userInput.setAttribute("placeholder", "Type a message...");
+                console.log("Knowledge bases (mini-index and detailed) embedded.");
+                appendMessage({ role: "system", content: "AI: I'm ready! Ask me anything about the SQL database schema (Users, Products, Orders, OrderItems, Categories)." });
+
+            } catch (error) {
+                downloadStatus.textContent = `Error loading models: ${error.message}`;
+                console.error("Error initializing models or RAG:", error);
+            }
+        }
+
+
+        // Function to handle sending a message - MODIFIED FOR LLM-DRIVEN RAG
+        async function onMessageSend() {
+            const input = userInput.value.trim();
+            if (input.length === 0) {
+                return;
+            }
+
+            // Add user message to UI
+            const userMessage = { content: input, role: "user" };
+            messages.push(userMessage); // Add to conversation history
+            appendMessage(userMessage);
+
+            userInput.value = "";
+            sendButton.disabled = true;
+            userInput.setAttribute("placeholder", "Thinking and possibly looking up schema...");
+
+            // Temporarily append a placeholder for AI response
+            const aiMessagePlaceholder = { content: "typing...", role: "assistant" };
+            appendMessage(aiMessagePlaceholder, true); // Mark as streaming message for potential update
+
+            let fullAssistantResponse = "";
+            chatStats.classList.add("hidden");
+
+            try {
+                // --- FIRST LLM CALL: Decide if it needs to lookup schema info ---
+                // Send the current conversation history (including initial system message and user's new query)
+                const initialCompletion = await engine.chat.completions.create({
+                    messages: messages, // Send full current history
+                    stream: false, // We need the full response to parse JSON
+                    temperature: 0.7, // Ensure these are set for the model's behavior
+                    top_p: 0.9,
+                });
+
+                const llmFirstResponseContent = initialCompletion.choices?.[0]?.message?.content || "";
+                console.log("LLM's first response (raw):", llmFirstResponseContent);
+
+                let parsedAction = null;
+                try {
+                    parsedAction = JSON.parse(llmFirstResponseContent);
+                } catch (e) {
+                    // Not valid JSON, so it's a direct answer from LLM or an error
+                    console.log("LLM's first response was not a JSON action. Treating as direct answer.");
+                }
+
+                let finalResponseContent = "";
+
+                if (parsedAction && parsedAction.action === "lookup_schema_info" && parsedAction.query) {
+                    // LLM requested a lookup
+                    updateLastAssistantMessage("🔎 Searching schema for: " + parsedAction.query); // Update UI with lookup intent
+
+                    // Append the LLM's lookup request to history (important for context of next turn)
+                    messages.push({ role: "assistant", content: llmFirstResponseContent });
+
+                    // Stage 1 & 2: Perform RAG lookup based on LLM's query
+                    const retrievedContext = await performRagLookup(parsedAction.query);
+
+                    if (retrievedContext) {
+                        // Prepare "tool output" message for the LLM.
+                        // We add this as a 'user' message to simulate us providing the tool's output back to the LLM.
+                        const toolOutputMessage = `Here is the requested schema information:\n\`\`\`\n${retrievedContext}\n\`\`\`\nPlease use this information to answer the user's original question: "${input}"`;
+                        messages.push({ role: "user", content: toolOutputMessage });
+
+                        // --- SECOND LLM CALL: Answer with augmented context ---
+                        updateLastAssistantMessage("🧠 Processing with retrieved info..."); // Update UI for second LLM call
+                        const finalCompletion = await engine.chat.completions.create({
+                            messages: messages, // Send *all* history including lookup request and tool output
+                            stream: true, // Stream this final response
+                            temperature: 0.7,
+                            top_p: 0.9,
+                        });
+
+                        for await (const chunk of finalCompletion) {
+                            const curDelta = chunk.choices?.[0]?.delta.content;
+                            if (curDelta) {
+                                fullAssistantResponse += curDelta;
+                                updateLastAssistantMessage(fullAssistantResponse);
+                            }
+                        }
+                        finalResponseContent = fullAssistantResponse; // Store final streamed response
+                    } else {
+                        // If no relevant context found, inform the user
+                        finalResponseContent = "I couldn't find specific relevant schema information for your request: \"" + parsedAction.query + "\". Please try rephrasing.";
+                        updateLastAssistantMessage(finalResponseContent);
+                    }
+                } else {
+                    // LLM gave a direct answer, or something unparseable, so use it as final
+                    finalResponseContent = llmFirstResponseContent;
+                    updateLastAssistantMessage(finalResponseContent); // Display direct answer
+                }
+
+                // Add the final assistant response to chat history
+                messages.push({ content: finalResponseContent, role: "assistant" });
+
+                // Display performance stats
+                const usageText = await engine.runtimeStatsText();
+                chatStats.classList.remove("hidden");
+                chatStats.textContent = usageText;
+
+            } catch (error) {
+                updateLastAssistantMessage(`Error: ${error.message}`);
+                console.error("Error during LLM inference or RAG:", error);
+            } finally {
+                sendButton.disabled = false;
+                userInput.disabled = false;
+                userInput.setAttribute("placeholder", "Type a message...");
+                currentAssistantMessageElement = null; // Clear reference
+            }
+        }
+
+        // Event Listeners
+        sendButton.addEventListener("click", onMessageSend);
+        userInput.addEventListener("keypress", (event) => {
+            if (event.key === "Enter" && !sendButton.disabled) {
+                onMessageSend();
+            }
+        });
+
+        // Initialize all models (WebLLM and Embedding model) when the page loads
+        document.addEventListener("DOMContentLoaded", initializeModels);
+    </script>
+</body>
+</html>
