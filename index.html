@@ -20,7 +20,7 @@
         #chat-container {
             background-color: #fff;
             border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);#
             width: 90%;
             max-width: 600px;
             display: flex;
@@ -212,8 +212,14 @@ If you can answer the question directly with your existing knowledge or after us
         let currentAssistantMessageElement = null; // To update the streaming message
         let embedder = null; // In-browser embedding model
 
-        // Fix: Declare engine as 'let' at module scope. It will be instantiated inside initializeModels.
-        let engine;
+    // Fix: Declare engine as 'let' at module scope. It will be instantiated inside initializeModels.
+    let engine;
+    // Backend selection flow (priority):
+    // 1. transformers:webgpu  2. transformers:webgl  3. webllm:webgpu  4. transformers:wasm
+    let chatBackend = null;
+    let textGenPipeline = null; // transformers.js pipeline instance
+    const TRANSFORMERS_MODEL = 'Xenova/Qwen2.5-0.5B-Instruct'; // Adjust for size/perf; can swap to smaller model
+    const SMALLER_MODEL_HINT = 'Xenova/SmolLM2-360M-Instruct';
 
         let miniTableIndexEmbeddings = []; // Stores { tableId: "users", text: "...", embedding: [...] }
         let detailedSchemaEmbeddings = []; // Stores { tableId: "users", chunkId: "col_details", text: "...", embedding: [...] }
@@ -390,100 +396,102 @@ If you can answer the question directly with your existing knowledge or after us
         // --- Model Initialization ---
 
         async function initializeModels() {
-            downloadStatus.classList.remove("hidden");
-            downloadStatus.textContent = "Loading WebLLM and Embedding Models...";
+            downloadStatus.classList.remove('hidden');
+            downloadStatus.textContent = 'Detecting acceleration backends...';
 
-            // Instantiate engine here, ensuring webllm is fully loaded
-            // This is the fix for "engine not defined"
-            engine = new webllm.MLCEngine();
-            engine.setInitProgressCallback(updateEngineInitProgressCallback);
+            const hasWebGPU = !!navigator.gpu;
+            const hasWebGL2 = (() => { try { const c=document.createElement('canvas'); return !!c.getContext('webgl2'); } catch(_) { return false; } })();
+            console.log('Backend availability:', { hasWebGPU, hasWebGL2 });
 
-
-            // 1. Load WebLLM (main chat model)
-            let selectedModel = null;
-            const preferredModelPattern = "TinyLlama"; // Try TinyLlama first
-            const availableModels = webllm.prebuiltAppConfig.model_list;
-
-            const suitableModels = availableModels.filter(m =>
-                m.model_id.toLowerCase().includes(preferredModelPattern.toLowerCase()) &&
-                (m.model_id.includes("q4f16_1-MLC") || m.model_id.includes("q4f32_1-MLC")) &&
-                m.model_id.includes("Instruct")
-            );
-
-            if (suitableModels.length > 0) {
-                selectedModel = suitableModels[0].model_id;
-                console.log(`Found preferred chat model: ${selectedModel}`);
-            } else {
-                const fallbackModels = [
-                    "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC",
-                    "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
-                    "gemma-2b-it-q4f16_1-MLC",
-                    "Phi-3.5-mini-instruct-q4f16_1-MLC",
-                ];
-                for (const fbModelId of fallbackModels) {
-                    const foundFbModel = availableModels.find(m => m.model_id === fbModelId);
-                    if (foundFbModel) {
-                        selectedModel = foundFbModel.model_id;
-                        console.log(`Falling back to chat model: ${selectedModel}`);
-                        break;
-                    }
+            // Attempt order: transformers webgpu -> transformers webgl -> webllm -> transformers wasm
+            async function tryTransformers(deviceTag) {
+                try {
+                    downloadStatus.textContent = `Loading transformers (${deviceTag}) model...`;
+                    const opts = {};
+                    // device selection hint (API may evolve; ignored if unsupported)
+                    opts.device = deviceTag.startsWith('web') ? 'gpu' : 'cpu';
+                    // quantization hint (lower memory where supported)
+                    opts.quantized = true;
+                    textGenPipeline = await pipeline('text-generation', TRANSFORMERS_MODEL, opts);
+                    chatBackend = `transformers-${deviceTag}`;
+                    console.log(`Loaded transformers model on ${deviceTag}`);
+                    return true;
+                } catch (e) {
+                    console.warn(`Transformers ${deviceTag} load failed:`, e);
+                    return false;
                 }
             }
 
-            if (!selectedModel) {
-                downloadStatus.textContent = "Error: No suitable chat model found.";
-                console.error("No suitable chat model found in available models.");
-                return;
+            let initialized = false;
+            if (!initialized && hasWebGPU) initialized = await tryTransformers('webgpu');
+            if (!initialized && hasWebGL2) initialized = await tryTransformers('webgl');
+
+            // WebLLM attempt (only if not already have transformers GPU/WebGL and WebGPU present)
+            if (!initialized && hasWebGPU) {
+                try {
+                    downloadStatus.textContent = 'Loading WebLLM model (WebGPU)...';
+                    engine = new webllm.MLCEngine();
+                    engine.setInitProgressCallback(updateEngineInitProgressCallback);
+                    let selectedModel = null;
+                    const preferredModelPattern = 'TinyLlama';
+                    const availableModels = webllm.prebuiltAppConfig.model_list;
+                    const suitableModels = availableModels.filter(m => m.model_id.toLowerCase().includes(preferredModelPattern.toLowerCase()) && (m.model_id.includes('q4f16_1-MLC') || m.model_id.includes('q4f32_1-MLC')) && m.model_id.includes('Instruct'));
+                    if (suitableModels.length > 0) { selectedModel = suitableModels[0].model_id; } else {
+                        const fb = ['TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC','Qwen2.5-0.5B-Instruct-q4f16_1-MLC','gemma-2b-it-q4f16_1-MLC','Phi-3.5-mini-instruct-q4f16_1-MLC'];
+                        for (const id of fb) { if (availableModels.find(m => m.model_id === id)) { selectedModel = id; break; } }
+                    }
+                    if (!selectedModel) throw new Error('No WebLLM model found');
+                    await engine.reload(selectedModel, { temperature: 0.7, top_p: 0.9 });
+                    chatBackend = 'webllm';
+                    initialized = true;
+                    console.log('Loaded WebLLM model:', selectedModel);
+                } catch (e) {
+                    console.warn('WebLLM load failed:', e);
+                }
             }
 
+            // Final fallback: transformers wasm (CPU)
+            if (!initialized) {
+                const ok = await tryTransformers('wasm');
+                if (!ok) {
+                    downloadStatus.textContent = 'All model backend attempts failed. See console for details.';
+                    return;
+                }
+                initialized = true;
+            }
+
+            // Embeddings (shared)
             try {
-                const config = { temperature: 0.7, top_p: 0.9 };
-                await engine.reload(selectedModel, config);
-                downloadStatus.textContent = `Chat Model '${selectedModel}' loaded.`;
-                console.log("WebLLM engine initialized successfully.");
-
-                // 2. Load Embedding Model and Embed Knowledge Base
-                downloadStatus.textContent = "Loading Embedding Model and indexing schema...";
+                downloadStatus.textContent = 'Loading embedding model...';
                 embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-                console.log("Embedding model loaded.");
-
                 for (const table of rawSqlSchema) {
-                    // Embed mini-index summary
                     const summaryOutput = await embedder(table.summary, { pooling: 'mean', normalize: true });
-                    miniTableIndexEmbeddings.push({
-                        tableId: table.name,
-                        text: table.summary,
-                        embedding: summaryOutput.data
-                    });
-
-                    // Embed detailed chunks
+                    miniTableIndexEmbeddings.push({ tableId: table.name, text: table.summary, embedding: summaryOutput.data });
                     for (let i = 0; i < table.details.length; i++) {
                         const chunkText = table.details[i];
                         const chunkOutput = await embedder(chunkText, { pooling: 'mean', normalize: true });
-                        detailedSchemaEmbeddings.push({
-                            tableId: table.name,
-                            chunkId: `${table.name}_chunk_${i}`,
-                            text: chunkText,
-                            embedding: chunkOutput.data
-                        });
+                        detailedSchemaEmbeddings.push({ tableId: table.name, chunkId: `${table.name}_chunk_${i}`, text: chunkText, embedding: chunkOutput.data });
                     }
                 }
-                downloadStatus.textContent = "All models loaded and schema indexed. Ready to chat!";
-                sendButton.disabled = false;
-                userInput.disabled = false;
-                userInput.setAttribute("placeholder", "Type a message...");
-                console.log("Knowledge bases (mini-index and detailed) embedded.");
-                appendMessage({ role: "system", content: "AI: I'm ready! Ask me anything about the SQL database schema (Users, Products, Orders, OrderItems, Categories)." });
-
-            } catch (error) {
-                downloadStatus.textContent = `Error loading models: ${error.message}`;
-                console.error("Error initializing models or RAG:", error);
+            } catch (e) {
+                downloadStatus.textContent = 'Embedding init failed: ' + e.message;
+                console.error('Embedding init error:', e);
+                return;
             }
+
+            // Ready UI
+            const backendLabel = chatBackend || 'unknown';
+            const slow = backendLabel.includes('wasm');
+            sendButton.disabled = false;
+            userInput.disabled = false;
+            userInput.setAttribute('placeholder', slow ? 'Type (CPU fallback, slower)...' : 'Type a message...');
+            appendMessage({ role: 'system', content: `AI (${backendLabel}): Ready. Ask about the SQL schema. ${slow ? 'Consider a smaller model ('+SMALLER_MODEL_HINT+') for speed.' : ''}` });
+            downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
         }
 
 
         // Function to handle sending a message - MODIFIED FOR LLM-DRIVEN RAG
-        async function onMessageSend() {
+    async function onMessageSend() {
             const input = userInput.value.trim();
             if (input.length === 0) {
                 return;
@@ -506,88 +514,83 @@ If you can answer the question directly with your existing knowledge or after us
             chatStats.classList.add("hidden");
 
             try {
-                // --- FIRST LLM CALL: Decide if it needs to lookup schema info ---
-                // Send the current conversation history (including initial system message and user's new query)
-                const initialCompletion = await engine.chat.completions.create({
-                    messages: messages, // Send full current history
-                    stream: false, // We need the full response to parse JSON
-                    temperature: 0.7, // Ensure these are set for the model's behavior
-                    top_p: 0.9,
-                });
-
-                const llmFirstResponseContent = initialCompletion.choices?.[0]?.message?.content || "";
-                console.log("LLM's first response (raw):", llmFirstResponseContent);
-
-                let parsedAction = null;
-                try {
-                    parsedAction = JSON.parse(llmFirstResponseContent);
-                } catch (e) {
-                    // Not valid JSON, so it's a direct answer from LLM or an error
-                    console.log("LLM's first response was not a JSON action. Treating as direct answer.");
-                }
-
-                let finalResponseContent = "";
-
-                if (parsedAction && parsedAction.action === "lookup_schema_info" && parsedAction.query) {
-                    // LLM requested a lookup
-                    updateLastAssistantMessage("🔎 Searching schema for: " + parsedAction.query); // Update UI with lookup intent
-
-                    // Append the LLM's lookup request to history (important for context of next turn)
-                    messages.push({ role: "assistant", content: llmFirstResponseContent });
-
-                    // Stage 1 & 2: Perform RAG lookup based on LLM's query
-                    const retrievedContext = await performRagLookup(parsedAction.query);
-
-                    if (retrievedContext) {
-                        // Prepare "tool output" message for the LLM.
-                        // We add this as a 'user' message to simulate us providing the tool's output back to the LLM.
-                        const toolOutputMessage = `Here is the requested schema information:\n\`\`\`\n${retrievedContext}\n\`\`\`\nPlease use this information to answer the user's original question: "${input}"`;
-                        messages.push({ role: "user", content: toolOutputMessage });
-
-                        // --- SECOND LLM CALL: Answer with augmented context ---
-                        updateLastAssistantMessage("🧠 Processing with retrieved info..."); // Update UI for second LLM call
-                        const finalCompletion = await engine.chat.completions.create({
-                            messages: messages, // Send *all* history including lookup request and tool output
-                            stream: true, // Stream this final response
-                            temperature: 0.7,
-                            top_p: 0.9,
-                        });
-
-                        for await (const chunk of finalCompletion) {
-                            const curDelta = chunk.choices?.[0]?.delta.content;
-                            if (curDelta) {
-                                fullAssistantResponse += curDelta;
-                                updateLastAssistantMessage(fullAssistantResponse);
+                if (chatBackend === 'webllm') {
+                    // Original WebLLM two-pass tool invocation logic
+                    const initialCompletion = await engine.chat.completions.create({
+                        messages: messages,
+                        stream: false,
+                        temperature: 0.7,
+                        top_p: 0.9,
+                    });
+                    const llmFirstResponseContent = initialCompletion.choices?.[0]?.message?.content || "";
+                    let parsedAction = null;
+                    try { parsedAction = JSON.parse(llmFirstResponseContent); } catch (_) {}
+                    let finalResponseContent = "";
+                    if (parsedAction && parsedAction.action === "lookup_schema_info" && parsedAction.query) {
+                        updateLastAssistantMessage("🔎 Searching schema for: " + parsedAction.query);
+                        messages.push({ role: "assistant", content: llmFirstResponseContent });
+                        const retrievedContext = await performRagLookup(parsedAction.query);
+                        if (retrievedContext) {
+                            const toolOutputMessage = `Here is the requested schema information:\n\`\`\`\n${retrievedContext}\n\`\`\`\nPlease use this information to answer the user's original question: "${input}"`;
+                            messages.push({ role: "user", content: toolOutputMessage });
+                            updateLastAssistantMessage("🧠 Processing with retrieved info...");
+                            const finalCompletion = await engine.chat.completions.create({
+                                messages: messages,
+                                stream: true,
+                                temperature: 0.7,
+                                top_p: 0.9,
+                            });
+                            for await (const chunk of finalCompletion) {
+                                const curDelta = chunk.choices?.[0]?.delta.content;
+                                if (curDelta) {
+                                    fullAssistantResponse += curDelta;
+                                    updateLastAssistantMessage(fullAssistantResponse);
+                                }
                             }
+                            finalResponseContent = fullAssistantResponse;
+                        } else {
+                            finalResponseContent = "I couldn't find specific relevant schema information for your request: \"" + parsedAction.query + "\".";
+                            updateLastAssistantMessage(finalResponseContent);
                         }
-                        finalResponseContent = fullAssistantResponse; // Store final streamed response
                     } else {
-                        // If no relevant context found, inform the user
-                        finalResponseContent = "I couldn't find specific relevant schema information for your request: \"" + parsedAction.query + "\". Please try rephrasing.";
+                        finalResponseContent = llmFirstResponseContent;
                         updateLastAssistantMessage(finalResponseContent);
                     }
+                    messages.push({ content: finalResponseContent, role: 'assistant' });
+                    const usageText = await engine.runtimeStatsText();
+                    chatStats.classList.remove('hidden');
+                    chatStats.textContent = usageText;
+                } else if (chatBackend && chatBackend.startsWith('transformers')) {
+                    // Fallback CPU flow: single pass with RAG context (no tool JSON handshake to save latency)
+                    updateLastAssistantMessage('🧠 Gathering relevant schema context...');
+                    const ragContext = await performRagLookup(input) || 'No directly relevant schema rows found.';
+                    const prompt = `${systemMessageContent}\n\nUser question: ${input}\n\nRelevant schema context:\n${ragContext}\n\nAnswer:`;
+                    updateLastAssistantMessage(`✍️ Generating answer (${chatBackend})...`);
+                    const result = await textGenPipeline(prompt, {
+                        max_new_tokens: 220,
+                        temperature: 0.7,
+                        top_p: 0.9,
+                        repetition_penalty: 1.05,
+                    });
+                    // transformers.js returns an array with generated_text
+                    const gen = Array.isArray(result) ? result[0]?.generated_text || '' : (result.generated_text || '');
+                    // Extract only the assistant portion after 'Answer:' to reduce prompt echo
+                    const answer = gen.split('Answer:').slice(1).join('Answer:').trim() || gen.trim();
+                    updateLastAssistantMessage(answer);
+                    messages.push({ content: answer, role: 'assistant' });
+                    chatStats.classList.add('hidden'); // No detailed runtime stats for fallback
                 } else {
-                    // LLM gave a direct answer, or something unparseable, so use it as final
-                    finalResponseContent = llmFirstResponseContent;
-                    updateLastAssistantMessage(finalResponseContent); // Display direct answer
+                    updateLastAssistantMessage('No active backend. Initialization error.');
                 }
-
-                // Add the final assistant response to chat history
-                messages.push({ content: finalResponseContent, role: "assistant" });
-
-                // Display performance stats
-                const usageText = await engine.runtimeStatsText();
-                chatStats.classList.remove("hidden");
-                chatStats.textContent = usageText;
-
             } catch (error) {
                 updateLastAssistantMessage(`Error: ${error.message}`);
-                console.error("Error during LLM inference or RAG:", error);
+                console.error('Error during chat handling:', error);
             } finally {
                 sendButton.disabled = false;
                 userInput.disabled = false;
-                userInput.setAttribute("placeholder", "Type a message...");
-                currentAssistantMessageElement = null; // Clear reference
+                const slow = chatBackend && chatBackend.endsWith('wasm');
+                userInput.setAttribute('placeholder', slow ? 'Type (CPU fallback, slower)...' : 'Type a message...');
+                currentAssistantMessageElement = null;
             }
         }
 
