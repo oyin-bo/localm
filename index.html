@@ -208,6 +208,14 @@
                 <input type="text" id="hf-token" placeholder="hf_... (optional)" size="18" autocomplete="off" />
             </label>
             <button id="apply-token" title="Store token (localStorage) & reload">Apply Token + Reload</button>
+            <label style="display:flex;align-items:center;gap:4px;">Models:
+                <input type="text" id="model-candidates" placeholder="comma-separated model ids" size="26" />
+            </label>
+            <button id="apply-models" title="Store custom model list & reload">Apply Models</button>
+            <label style="display:flex;align-items:center;gap:4px;">Skip RAG:
+                <input type="checkbox" id="skip-rag" title="If checked, no retrieval augmented context will be gathered." />
+            </label>
+            
             <select id="preferred-backend" title="Preferred first backend">
                 <option value="transformers-webgpu">TF WebGPU</option>
                 <option value="transformers-webgl">TF WebGL</option>
@@ -230,14 +238,35 @@
     </div>
 
     <script type="module">
-        import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
     import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+    
+    // ---- Console Log Filtering (suppress noisy ONNX optimizer warnings) ----
+    const LOG_FILTER_PATTERNS = [
+        /CleanUnusedInitializersAndNodeArgs/i,
+        /graph\.cc:\d+ CleanUnusedInitializersAndNodeArgs/i,
+        /Removing initializer '\/transformer\//i
+    ];
+    const originalConsole = { log: console.log, warn: console.warn };
+    function shouldSuppress(args) {
+        return args.some(a => typeof a === 'string' && LOG_FILTER_PATTERNS.some(p => p.test(a)));
+    }
+    console.warn = (...args) => {
+        if (shouldSuppress(args)) { return; }
+        originalConsole.warn(...args);
+    };
+    console.log = (...args) => {
+        if (shouldSuppress(args)) { return; }
+        originalConsole.log(...args);
+    };
 
         /*************** WebLLM Logic & RAG Components ***************/
 
         // System message for the LLM to understand its role and tool use
         const systemMessageContent = `
-You are an intelligent SQL database schema assistant. Your primary goal is to answer user questions about database tables, their columns, relationships, and provide SQL query suggestions.
+You are an intelligent person with honesty and broad knowledge.
+
+Although you also know about SQL queries.
 
 You have access to a special "lookup" tool. If you need more specific details about tables or concepts to answer a user's question, you MUST respond with a JSON object in this exact format:
 
@@ -263,13 +292,15 @@ If you can answer the question directly with your existing knowledge or after us
         const sendButton = document.getElementById("send");
         const downloadStatus = document.getElementById("download-status");
         const chatStats = document.getElementById("chat-stats");
-    const diagnosticsEl = document.getElementById('diagnostics');
-    const tokenInput = document.getElementById('hf-token');
-    const applyTokenBtn = document.getElementById('apply-token');
-    const forceReloadBtn = document.getElementById('force-reload');
-    const toggleDiagBtn = document.getElementById('toggle-diagnostics');
-    const backendSelect = document.getElementById('preferred-backend');
-    const activeBackendLabel = document.getElementById('active-backend');
+        const diagnosticsEl = document.getElementById('diagnostics');
+        const tokenInput = document.getElementById('hf-token');
+        const applyTokenBtn = document.getElementById('apply-token');
+        const forceReloadBtn = document.getElementById('force-reload');
+        const toggleDiagBtn = document.getElementById('toggle-diagnostics');
+        const backendSelect = document.getElementById('preferred-backend');
+        const activeBackendLabel = document.getElementById('active-backend');
+    const skipRagCheckbox = document.getElementById('skip-rag');
+
 
         let currentAssistantMessageElement = null; // To update the streaming message
         let embedder = null; // In-browser embedding model
@@ -281,13 +312,34 @@ If you can answer the question directly with your existing knowledge or after us
     let chatBackend = null;
     let textGenPipeline = null; // transformers.js pipeline instance
         // Candidate models (ordered). We rotate until one loads. Prefer fully open, ungated models first.
-        const TRANSFORMERS_MODEL_CANDIDATES = [
-            'Xenova/SmolLM2-360M-Instruct', // small, permissive
-            'Xenova/Qwen2.5-0.5B-Instruct',  // may require accepting license or token
-            'Xenova/gpt2' // fallback tiny (non-instruct, but ensures something works)
+        let TRANSFORMERS_MODEL_CANDIDATES = [];
+        const DEFAULT_TRANSFORMERS_MODEL_CANDIDATES = [
+            // Prefer small, widely available, ungated first.
+            'Xenova/distilgpt2',         // tiny baseline, almost always available
+            'Xenova/gpt2',               // larger baseline
+            'Xenova/phi-2',              // smallish, popular (may need token if rate-limited)
+            'Xenova/Qwen2.5-0.5B-Instruct' // instruct style (may gate)
         ];
-        const SMALLER_MODEL_HINT = 'Xenova/SmolLM2-360M-Instruct';
+        const SMALLER_MODEL_HINT = 'Xenova/distilgpt2';
+        const modelCandidatesInput = document.getElementById('model-candidates');
+        const applyModelsBtn = document.getElementById('apply-models');
+        const storedModels = localStorage.getItem('MODEL_CANDIDATES');
+        if (storedModels) {
+            TRANSFORMERS_MODEL_CANDIDATES = storedModels.split(',').map(s=>s.trim()).filter(Boolean);
+            modelCandidatesInput.value = TRANSFORMERS_MODEL_CANDIDATES.join(',');
+        } else {
+            TRANSFORMERS_MODEL_CANDIDATES = [...DEFAULT_TRANSFORMERS_MODEL_CANDIDATES];
+            modelCandidatesInput.value = TRANSFORMERS_MODEL_CANDIDATES.join(',');
+        }
         let chosenTransformersModel = null;
+        // Load skip RAG preference
+        const storedSkipRag = localStorage.getItem('SKIP_RAG') === '1';
+        skipRagCheckbox.checked = storedSkipRag;
+        skipRagCheckbox.addEventListener('change', () => {
+            localStorage.setItem('SKIP_RAG', skipRagCheckbox.checked ? '1' : '0');
+            appendDiagnostic('Skip RAG set to ' + skipRagCheckbox.checked);
+        });
+
 
         // Allow user to inject HF token before loading (e.g., window.HF_TOKEN = 'hf_xxx'; before this script)
         if (window.HF_TOKEN) {
@@ -358,6 +410,8 @@ If you can answer the question directly with your existing knowledge or after us
             }
         ];
 
+        appendDiagnostic(messages[0].content);
+
         // --- Helper Functions ---
 
         // Callback function for initializing WebLLM progress.
@@ -421,15 +475,22 @@ If you can answer the question directly with your existing knowledge or after us
 
         // --- RAG Lookup Logic ---
         async function performRagLookup(query) {
-            if (!embedder || miniTableIndexEmbeddings.length === 0 || detailedSchemaEmbeddings.length === 0) {
-                console.warn("Embedding model or knowledge base not ready for RAG lookup.");
+            if (skipRagCheckbox.checked) {
+                appendDiagnostic('RAG skipped by user preference.');
                 return null;
             }
+            if (!embedder || miniTableIndexEmbeddings.length === 0 || detailedSchemaEmbeddings.length === 0) {
+                console.warn("Embedding model or knowledge base not ready for RAG lookup.");
+                appendDiagnostic("Embedding model or knowledge base not ready for RAG lookup.");
+                return null;
+            }
+            appendDiagnostic('RAG start for query: ' + query);
 
             try {
                 // Stage 1: Embed user query and identify relevant tables from mini-index
                 const queryEmbeddingOutput = await embedder(query, { pooling: 'mean', normalize: true });
                 const queryEmbedding = queryEmbeddingOutput.data;
+                appendDiagnostic('RAG: query embedded dim=' + queryEmbedding.length);
 
                 let tableSimilarities = [];
                 for (const tableIndex of miniTableIndexEmbeddings) {
@@ -442,8 +503,10 @@ If you can answer the question directly with your existing knowledge or after us
 
                 if (topRelevantTableIds.length === 0) {
                     console.log("No highly relevant tables identified for query:", query);
+                    appendDiagnostic("RAG: No table above threshold.");
                     return null;
                 }
+                appendDiagnostic("RAG: tables -> " + topRelevantTableIds.join(','));
                 console.log("Identified relevant tables for RAG:", topRelevantTableIds);
 
                 // Stage 2: Filter detailed chunks by relevant tables and re-rank
@@ -465,8 +528,10 @@ If you can answer the question directly with your existing knowledge or after us
                 const contextChunks = chunkSimilarities.filter(s => s.score > 0.4).slice(0, maxChunksToInclude).map(s => s.chunk); // Filter by score again
 
                 if (contextChunks.length > 0) {
+                    appendDiagnostic('RAG: selected ' + contextChunks.length + ' chunks.');
                     return contextChunks.join("\n\n---\n\n");
                 } else {
+                    appendDiagnostic('RAG: No chunk passed score filter.');
                     return null; // No relevant chunks found after filtering
                 }
 
@@ -488,8 +553,36 @@ If you can answer the question directly with your existing knowledge or after us
 
             // Attempt order: transformers webgpu -> transformers webgl -> webllm -> transformers wasm
             const modelLoadErrors = [];
-            async function tryTransformers(deviceTag) {
+            let validatedModelCandidates = null;
+            async function preflightModels() {
+                if (validatedModelCandidates) return validatedModelCandidates;
+                validatedModelCandidates = [];
+                appendDiagnostic('Preflight HEAD validation for models...');
                 for (const modelId of TRANSFORMERS_MODEL_CANDIDATES) {
+                    const cfgUrl = `${env.remoteURL}/${modelId}/resolve/main/config.json`;
+                    try {
+                        let resp = await fetch(cfgUrl, { method: 'HEAD' });
+                        if (resp.status === 405) { // Method not allowed, try GET minimal
+                            resp = await fetch(cfgUrl, { method: 'GET' });
+                        }
+                        if (resp.ok) {
+                            validatedModelCandidates.push(modelId);
+                            appendDiagnostic(`OK ${modelId}`);
+                        } else {
+                            appendDiagnostic(`Skip ${modelId} (${resp.status})`);
+                        }
+                    } catch (e) {
+                        appendDiagnostic(`Skip ${modelId} (error: ${e.message})`);
+                    }
+                }
+                if (validatedModelCandidates.length === 0) {
+                    appendDiagnostic('No valid models after preflight.');
+                }
+                return validatedModelCandidates;
+            }
+            async function tryTransformers(deviceTag) {
+                const candidates = await preflightModels();
+                for (const modelId of candidates) {
                     try {
                         downloadStatus.textContent = `Loading ${modelId} (${deviceTag})...`;
                         const opts = { quantized: true };
@@ -651,6 +744,8 @@ If you can answer the question directly with your existing knowledge or after us
             let fullAssistantResponse = "";
             chatStats.classList.add("hidden");
 
+            console.log('Messages ', messages);
+
             try {
                 if (chatBackend === 'webllm') {
                     // Original WebLLM two-pass tool invocation logic
@@ -660,39 +755,46 @@ If you can answer the question directly with your existing knowledge or after us
                         temperature: 0.7,
                         top_p: 0.9,
                     });
-                    const llmFirstResponseContent = initialCompletion.choices?.[0]?.message?.content || "";
-                    let parsedAction = null;
-                    try { parsedAction = JSON.parse(llmFirstResponseContent); } catch (_) {}
+                    let llmFirstResponseContent = initialCompletion.choices?.[0]?.message?.content || "";
                     let finalResponseContent = "";
-                    if (parsedAction && parsedAction.action === "lookup_schema_info" && parsedAction.query) {
-                        updateLastAssistantMessage("🔎 Searching schema for: " + parsedAction.query);
-                        messages.push({ role: "assistant", content: llmFirstResponseContent });
-                        const retrievedContext = await performRagLookup(parsedAction.query);
-                        if (retrievedContext) {
-                            const toolOutputMessage = `Here is the requested schema information:\n\`\`\`\n${retrievedContext}\n\`\`\`\nPlease use this information to answer the user's original question: "${input}"`;
-                            messages.push({ role: "user", content: toolOutputMessage });
-                            updateLastAssistantMessage("🧠 Processing with retrieved info...");
-                            const finalCompletion = await engine.chat.completions.create({
-                                messages: messages,
-                                stream: true,
-                                temperature: 0.7,
-                                top_p: 0.9,
-                            });
-                            for await (const chunk of finalCompletion) {
-                                const curDelta = chunk.choices?.[0]?.delta.content;
-                                if (curDelta) {
-                                    fullAssistantResponse += curDelta;
-                                    updateLastAssistantMessage(fullAssistantResponse);
-                                }
-                            }
-                            finalResponseContent = fullAssistantResponse;
-                        } else {
-                            finalResponseContent = "I couldn't find specific relevant schema information for your request: \"" + parsedAction.query + "\".";
-                            updateLastAssistantMessage(finalResponseContent);
-                        }
-                    } else {
+                    if (skipRagCheckbox.checked) {
+                        appendDiagnostic('Skip RAG mode: using first LLM response directly.');
                         finalResponseContent = llmFirstResponseContent;
                         updateLastAssistantMessage(finalResponseContent);
+                    } else {
+                        let parsedAction = null;
+                        try { parsedAction = JSON.parse(llmFirstResponseContent); } catch (_) {}
+                        if (parsedAction && parsedAction.action === "lookup_schema_info" && parsedAction.query) {
+                            appendDiagnostic("RAG lookup requested by model: " + parsedAction.query);
+                            updateLastAssistantMessage("🔎 Searching schema for: " + parsedAction.query);
+                            messages.push({ role: "assistant", content: llmFirstResponseContent });
+                            const retrievedContext = await performRagLookup(parsedAction.query);
+                            if (retrievedContext) {
+                                const toolOutputMessage = `Here is the requested schema information:\n\`\`\`\n${retrievedContext}\n\`\`\`\nPlease use this information to answer the user's original question: "${input}"`;
+                                messages.push({ role: "user", content: toolOutputMessage });
+                                updateLastAssistantMessage("🧠 Processing with retrieved info...");
+                                const finalCompletion = await engine.chat.completions.create({
+                                    messages: messages,
+                                    stream: true,
+                                    temperature: 0.7,
+                                    top_p: 0.9,
+                                });
+                                for await (const chunk of finalCompletion) {
+                                    const curDelta = chunk.choices?.[0]?.delta.content;
+                                    if (curDelta) {
+                                        fullAssistantResponse += curDelta;
+                                        updateLastAssistantMessage(fullAssistantResponse);
+                                    }
+                                }
+                                finalResponseContent = fullAssistantResponse;
+                            } else {
+                                finalResponseContent = "No relevant context.";
+                                updateLastAssistantMessage(finalResponseContent);
+                            }
+                        } else {
+                            finalResponseContent = llmFirstResponseContent;
+                            updateLastAssistantMessage(finalResponseContent);
+                        }
                     }
                     messages.push({ content: finalResponseContent, role: 'assistant' });
                     const usageText = await engine.runtimeStatsText();
@@ -701,8 +803,11 @@ If you can answer the question directly with your existing knowledge or after us
                 } else if (chatBackend && chatBackend.startsWith('transformers')) {
                     // Fallback CPU flow: single pass with RAG context (no tool JSON handshake to save latency)
                     updateLastAssistantMessage('🧠 Gathering relevant schema context...');
-                    const ragContext = await performRagLookup(input) || 'No directly relevant schema rows found.';
-                    const prompt = `${systemMessageContent}\n\nUser question: ${input}\n\nRelevant schema context:\n${ragContext}\n\nAnswer:`;
+                    let ragContext = null;
+                    if (!skipRagCheckbox.checked) ragContext = await performRagLookup(input);
+                    const prompt = skipRagCheckbox.checked
+                        ? `${systemMessageContent}\n\nUser question: ${input}\n\nAnswer:`
+                        : `${systemMessageContent}\n\nUser question: ${input}\n\nRelevant schema context:\n${ragContext || 'No relevant context.'}\n\nAnswer:`;
                     updateLastAssistantMessage(`✍️ Generating answer (${chatBackend}${chosenTransformersModel? '/' + chosenTransformersModel: ''})...`);
                     let streamedAnswer = '';
                     try {
@@ -771,6 +876,12 @@ If you can answer the question directly with your existing knowledge or after us
                 window.location.reload();
             }
         });
+        applyModelsBtn.addEventListener('click', () => {
+            const raw = modelCandidatesInput.value.trim();
+            if (!raw) return;
+            localStorage.setItem('MODEL_CANDIDATES', raw);
+            window.location.reload();
+        });
         forceReloadBtn.addEventListener('click', () => window.location.reload());
         toggleDiagBtn.addEventListener('click', () => diagnosticsEl.classList.toggle('show'));
 
@@ -782,8 +893,19 @@ If you can answer the question directly with your existing knowledge or after us
             }
         });
 
+        // Attempt to reduce ONNX Runtime verbosity (if backend loads onnxruntime-web)
+        async function quietOnnxLogs() {
+            try {
+                const ort = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js');
+                // ort.env.logLevel values: 'verbose'|'info'|'warning'|'error' (or numeric severity)
+                ort.env.logLevel = 'info';
+            } catch (e) {
+                appendDiagnostic('ORT log level not set: ' + e.message);
+            }
+        }
+
         // Initialize all models (WebLLM and Embedding model) when the page loads
-        document.addEventListener("DOMContentLoaded", initializeModels);
+        document.addEventListener("DOMContentLoaded", () => { quietOnnxLogs(); initializeModels(); });
     </script>
 </body>
 </html>
