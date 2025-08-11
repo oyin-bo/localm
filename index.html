@@ -889,16 +889,78 @@ If you can answer the question directly with your existing knowledge or after us
         forceReloadBtn.addEventListener('click', () => window.location.reload());
         toggleDiagBtn.addEventListener('click', () => diagnosticsEl.classList.toggle('show'));
 
-            // Trial Models: без токенів, мінімальний стабільний набір, Markdown список як системне повідомлення
+            // --- Dynamic Trial Models Discovery (tokenless) ---
+            async function discoverOpenSmallModels(maxModels = 10) {
+                const collected = new Set();
+                const results = [];
+                const SEARCH_ENDPOINTS = [
+                    // Popular small-ish text gen models by downloads
+                    `${env.remoteURL}/api/models?pipeline_tag=text-generation&sort=downloads&direction=-1&limit=50`,
+                    // Fallback: general search for tiny / distil / mini / small
+                    `${env.remoteURL}/api/models?search=distil&limit=25`,
+                    `${env.remoteURL}/api/models?search=tinyllama&limit=25`,
+                    `${env.remoteURL}/api/models?search=phi-2&limit=25`,
+                    `${env.remoteURL}/api/models?search=qwen2.5-0.5b&limit=25`,
+                    `${env.remoteURL}/api/models?search=smol&limit=25`
+                ];
+                const nameAllowPatterns = [
+                    /distilgpt/i,
+                    /gpt2$/i,
+                    /tinyllama/i,
+                    /phi[-_]?1|phi[-_]?2/i,
+                    /qwen2?\.5?[-_]?0\.5b/i,
+                    /smol/i,
+                    /mini[-_]?llama/i
+                ];
+                function nameLooksSmall(id) {
+                    return nameAllowPatterns.some(rx => rx.test(id));
+                }
+                function quickHeuristicIsSmall(modelInfo) {
+                    // Basic gates first.
+                    if (modelInfo.private || modelInfo.gated || modelInfo.disabled) return false;
+                    const id = modelInfo.id || '';
+                    if (nameLooksSmall(id)) return true;
+                    // Try tags heuristics.
+                    const tags = modelInfo.tags || [];
+                    if (tags.some(t => /tiny|micro|mini|small|distil/.test(t))) return true;
+                    return false;
+                }
+                async function fetchJSON(url) {
+                    try {
+                        const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+                        return await r.json();
+                    } catch (e) {
+                        appendDiagnostic('Discovery fetch fail: ' + url + ' :: ' + e.message);
+                        return null;
+                    }
+                }
+                for (const url of SEARCH_ENDPOINTS) {
+                    if (results.length >= maxModels) break;
+                    const data = await fetchJSON(url);
+                    if (!Array.isArray(data)) continue;
+                    for (const m of data) {
+                        if (results.length >= maxModels) break;
+                        const id = m.modelId || m.id; // API inconsistent keys
+                        if (!id || collected.has(id)) continue;
+                        if (!quickHeuristicIsSmall({ ...m, id })) continue;
+                        if (m.pipeline_tag && m.pipeline_tag !== 'text-generation') continue; // prefer text-generation
+                        collected.add(id);
+                        results.push(id);
+                    }
+                }
+                // Ensure some baseline fallbacks at end if discovery too small
+                const FALLBACKS = ['Xenova/distilgpt2','Xenova/gpt2'];
+                for (const f of FALLBACKS) if (!results.includes(f)) results.push(f);
+                return results.slice(0, maxModels);
+            }
+
             trialModelsBtn.addEventListener('click', async () => {
                 const trialResultsDiv = document.getElementById('trial-results');
                 trialResultsDiv.style.display = 'block';
-                trialResultsDiv.innerHTML = '<b>Running trials (no tokens)...</b>';
+                trialResultsDiv.innerHTML = '<b>Discovering open small models (no token)...</b>';
                 const TRIAL_PROMPT = 'Do planes fly higher than bees?';
-                const MODELS_TO_TRY = [ 'Xenova/distilgpt2', 'Xenova/gpt2' ];
                 trialModelsBtn.disabled = true;
-                appendDiagnostic('Trial: Starting over ' + MODELS_TO_TRY.length + ' models (tokenless).');
-                const collected = [];
                 const progressList = document.createElement('ul');
                 progressList.style.fontSize = '0.7rem';
                 trialResultsDiv.appendChild(progressList);
@@ -908,9 +970,22 @@ If you can answer the question directly with your existing knowledge or after us
                     progressList.appendChild(li);
                     trialResultsDiv.scrollTop = trialResultsDiv.scrollHeight;
                 };
+                appendDiagnostic('Trial: starting discovery...');
+                let discovered = [];
                 try {
-                    for (let i=0;i<MODELS_TO_TRY.length;i++) {
-                        const modelId = MODELS_TO_TRY[i];
+                    discovered = await discoverOpenSmallModels(10);
+                } catch(e) {
+                    appendDiagnostic('Discovery error: ' + e.message);
+                }
+                if (!discovered.length) {
+                    addProgress('No models discovered dynamically. Using static fallbacks.');
+                    discovered = ['Xenova/distilgpt2','Xenova/gpt2'];
+                }
+                addProgress('Models to try: ' + discovered.join(', '));
+                appendDiagnostic('Trial: Models -> ' + discovered.join(', '));
+                const collected = [];
+                try {
+                    for (const modelId of discovered) {
                         let loadTime='-', genTime='-', snippet='', error=null;
                         let t0 = performance.now();
                         addProgress(`Loading ${modelId} ...`);
@@ -935,8 +1010,7 @@ If you can answer the question directly with your existing knowledge or after us
                 } finally {
                     trialModelsBtn.disabled = false;
                 }
-                // Формуємо Markdown
-                let md = '### Trial Results (No Token)\n';
+                let md = '### Trial Results (Dynamic, No Token)\n';
                 for (const r of collected) {
                     if (r.error) {
                         md += `- **${r.model}**: ERROR: ${r.error}\n`;
@@ -945,7 +1019,7 @@ If you can answer the question directly with your existing knowledge or after us
                     }
                 }
                 appendMessage({ role:'system', content: md });
-                appendDiagnostic('Trial: Markdown summary appended to chat.');
+                appendDiagnostic('Trial: dynamic markdown summary appended to chat.');
             });
 
         // Event Listeners
