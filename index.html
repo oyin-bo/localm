@@ -318,11 +318,10 @@ If you can answer the question directly with your existing knowledge or after us
         // Candidate models (ordered). We rotate until one loads. Prefer fully open, ungated models first.
         let TRANSFORMERS_MODEL_CANDIDATES = [];
         const DEFAULT_TRANSFORMERS_MODEL_CANDIDATES = [
-            // Prefer small, widely available, ungated first.
-            'Xenova/distilgpt2',         // tiny baseline, almost always available
-            'Xenova/gpt2',               // larger baseline
-            'Xenova/phi-2',              // smallish, popular (may need token if rate-limited)
-            'Xenova/Qwen2.5-0.5B-Instruct' // instruct style (may gate)
+            // Force GPT2 first as requested, with a tiny fallback.
+            'Xenova/gpt2',               // preferred primary model for chat
+            'Xenova/distilgpt2'          // tiny fallback
+            // (Removed larger models to avoid long downloads / gated issues without token)
         ];
         const SMALLER_MODEL_HINT = 'Xenova/distilgpt2';
         const modelCandidatesInput = document.getElementById('model-candidates');
@@ -890,7 +889,7 @@ If you can answer the question directly with your existing knowledge or after us
         toggleDiagBtn.addEventListener('click', () => diagnosticsEl.classList.toggle('show'));
 
             // --- Dynamic Trial Models Discovery (tokenless) ---
-            async function discoverOpenSmallModels(maxModels = 10) {
+            async function discoverOpenSmallModels(maxModels = 6) {
                 const collected = new Set();
                 const results = [];
                 const SEARCH_ENDPOINTS = [
@@ -950,9 +949,11 @@ If you can answer the question directly with your existing knowledge or after us
                     }
                 }
                 // Ensure some baseline fallbacks at end if discovery too small
-                const FALLBACKS = ['Xenova/distilgpt2','Xenova/gpt2'];
+                const FALLBACKS = ['Xenova/gpt2','Xenova/distilgpt2'];
                 for (const f of FALLBACKS) if (!results.includes(f)) results.push(f);
-                return results.slice(0, maxModels);
+                // Ensure fallbacks appear first (already pushed at end if missing; reorder)
+                const ordered = FALLBACKS.filter(f=>results.includes(f)).concat(results.filter(r=>!FALLBACKS.includes(r)));
+                return ordered.slice(0, maxModels);
             }
 
             trialModelsBtn.addEventListener('click', async () => {
@@ -970,6 +971,13 @@ If you can answer the question directly with your existing knowledge or after us
                     progressList.appendChild(li);
                     trialResultsDiv.scrollTop = trialResultsDiv.scrollHeight;
                 };
+                const yieldUI = async () => new Promise(r=>requestAnimationFrame(r));
+                function withTimeout(promise, ms, label) {
+                    return Promise.race([
+                        promise,
+                        new Promise((_, rej) => setTimeout(()=>rej(new Error(label + ' timeout after '+ms+'ms')), ms))
+                    ]);
+                }
                 appendDiagnostic('Trial: starting discovery...');
                 let discovered = [];
                 try {
@@ -979,20 +987,25 @@ If you can answer the question directly with your existing knowledge or after us
                 }
                 if (!discovered.length) {
                     addProgress('No models discovered dynamically. Using static fallbacks.');
-                    discovered = ['Xenova/distilgpt2','Xenova/gpt2'];
+                    discovered = ['Xenova/gpt2','Xenova/distilgpt2'];
                 }
-                addProgress('Models to try: ' + discovered.join(', '));
+                // Ensure baseline (gpt2 + distilgpt2) attempted first regardless of discovery order
+                const baseline = ['Xenova/gpt2','Xenova/distilgpt2'];
+                const ordered = baseline.concat(discovered.filter(m=>!baseline.includes(m)));
+                // Limit total trials for responsiveness
+                const MODELS = ordered.slice(0,6);
+                addProgress('Models to try: ' + MODELS.join(', '));
                 appendDiagnostic('Trial: Models -> ' + discovered.join(', '));
                 const collected = [];
                 try {
-                    for (const modelId of discovered) {
+                    for (const modelId of MODELS) {
                         let loadTime='-', genTime='-', snippet='', error=null;
                         let t0 = performance.now();
                         addProgress(`Loading ${modelId} ...`);
                         try {
-                            const pipe = await pipeline('text-generation', modelId, { quantized: true });
+                            const pipe = await withTimeout(pipeline('text-generation', modelId, { quantized: true }), 20000, 'load');
                             const t1 = performance.now();
-                            const out = await pipe(TRIAL_PROMPT, { max_new_tokens: 40, temperature: 0.7 });
+                            const out = await withTimeout(pipe(TRIAL_PROMPT, { max_new_tokens: 30, temperature: 0.7 }), 12000, 'gen');
                             const t2 = performance.now();
                             loadTime = ((t1-t0)/1000).toFixed(2)+'s';
                             genTime = ((t2-t1)/1000).toFixed(2)+'s';
@@ -1005,7 +1018,7 @@ If you can answer the question directly with your existing knowledge or after us
                             appendDiagnostic('Trial error '+modelId+': '+error);
                         }
                         collected.push({ model:modelId, loadTime, genTime, snippet, error });
-                        await new Promise(r=>setTimeout(r,0));
+                        await yieldUI();
                     }
                 } finally {
                     trialModelsBtn.disabled = false;
