@@ -223,6 +223,7 @@
                 <option value="transformers-wasm">TF WASM</option>
             </select>
             <button id="force-reload" title="Reinitialize models">Reload Models</button>
+            <button id="trial-models" title="Try/test multiple small models">Trial Models</button>
             <button id="toggle-diagnostics" title="Show/Hide diagnostics">Diagnostics</button>
             <span id="active-backend" style="margin-left:auto;font-weight:bold;">backend: -</span>
         </div>
@@ -230,7 +231,8 @@
         <div id="chat-box">
             </div>
         <div id="chat-stats" class="chat-stats hidden"></div>
-        <div id="diagnostics"></div>
+    <div id="diagnostics"></div>
+    <div id="trial-results" style="display:none;padding:12px;"></div>
         <div class="chat-input-container">
             <input type="text" id="user-input" placeholder="Loading models for RAG..." disabled>
             <button id="send" disabled>Send</button>
