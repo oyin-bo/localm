@@ -890,87 +890,68 @@ If you can answer the question directly with your existing knowledge or after us
 
             // --- Dynamic Trial Models Discovery (tokenless) ---
             async function discoverOpenSmallModels(maxModels = 6) {
-                const collected = new Set();
-                const results = [];
-                const SEARCH_ENDPOINTS = [
-                    // Popular small-ish text gen models by downloads
-                    `${env.remoteURL}/api/models?pipeline_tag=text-generation&sort=downloads&direction=-1&limit=50`,
-                    // Fallback: general search for tiny / distil / mini / small
-                    `${env.remoteURL}/api/models?search=distil&limit=25`,
-                    `${env.remoteURL}/api/models?search=tinyllama&limit=25`,
-                    `${env.remoteURL}/api/models?search=phi-2&limit=25`,
-                    `${env.remoteURL}/api/models?search=qwen2.5-0.5b&limit=25`,
-                    `${env.remoteURL}/api/models?search=smol&limit=25`
+                // Curated base list of realistically loadable tokenless models published with ONNX/TFJS weights.
+                const CURATED = [
+                    'Xenova/gpt2',
+                    'Xenova/distilgpt2',
+                    'Xenova/phi-2',
+                    'Xenova/TinyLlama-1.1B-Chat-v1.0'
                 ];
-                const nameAllowPatterns = [
-                    /distilgpt/i,
-                    /gpt2$/i,
-                    /tinyllama/i,
-                    /phi[-_]?1|phi[-_]?2/i,
-                    /qwen2?\.5?[-_]?0\.5b/i,
-                    /smol/i,
-                    /mini[-_]?llama/i
+                const archWhitelist = [
+                    'GPT2LMHeadModel',
+                    'PhiForCausalLM',
+                    'LlamaForCausalLM',
+                    'MistralForCausalLM',
+                    'TinyLlamaForCausalLM'
                 ];
-                function nameLooksSmall(id) {
-                    return nameAllowPatterns.some(rx => rx.test(id));
-                }
-                function quickHeuristicIsSmall(modelInfo) {
-                    // Basic gates first.
-                    if (modelInfo.private || modelInfo.gated || modelInfo.disabled) return false;
-                    const id = modelInfo.id || '';
-                    if (nameLooksSmall(id)) return true;
-                    // Try tags heuristics.
-                    const tags = modelInfo.tags || [];
-                    if (tags.some(t => /tiny|micro|mini|small|distil/.test(t))) return true;
-                    return false;
-                }
-                async function fetchJSON(url) {
+                const accepted = [];
+                async function fetchConfig(modelId) {
+                    const url = `${env.remoteURL}/${modelId}/resolve/main/config.json`;
                     try {
-                        const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
-                        return await r.json();
+                        const resp = await fetch(url, { headers:{ 'Accept':'application/json' } });
+                        if (!resp.ok) throw new Error(resp.status+ ' ' + resp.statusText);
+                        return await resp.json();
                     } catch (e) {
-                        appendDiagnostic('Discovery fetch fail: ' + url + ' :: ' + e.message);
+                        appendDiagnostic('Config fail '+modelId+': '+e.message);
                         return null;
                     }
                 }
-                for (const url of SEARCH_ENDPOINTS) {
-                    if (results.length >= maxModels) break;
-                    const data = await fetchJSON(url);
-                    if (!Array.isArray(data)) continue;
-                    for (const m of data) {
-                        if (results.length >= maxModels) break;
-                        const id = m.modelId || m.id; // API inconsistent keys
-                        if (!id || collected.has(id)) continue;
-                        if (!quickHeuristicIsSmall({ ...m, id })) continue;
-                        if (m.pipeline_tag && m.pipeline_tag !== 'text-generation') continue; // prefer text-generation
-                        collected.add(id);
-                        results.push(id);
+                for (const m of CURATED) {
+                    if (accepted.length >= maxModels) break;
+                    const cfg = await fetchConfig(m);
+                    if (!cfg) continue;
+                    const archs = cfg.architectures || [];
+                    const ok = archs.some(a => archWhitelist.includes(a));
+                    if (!ok) {
+                        appendDiagnostic('Skip '+m+' (arch '+archs.join('/')+' not whitelisted)');
+                        continue;
                     }
+                    // Rough size gating: reject if hidden_size * n_layer heuristic too large (> ~4B tokens weight proxy)
+                    const hs = cfg.hidden_size || cfg.n_embd || 0;
+                    const nl = cfg.num_hidden_layers || cfg.n_layer || 0;
+                    if (hs && nl && hs * nl > 20000) { // heuristic threshold
+                        appendDiagnostic('Skip '+m+' (heuristic size too large hs*nl='+hs*nl+')');
+                        continue;
+                    }
+                    accepted.push(m);
                 }
-                // Ensure some baseline fallbacks at end if discovery too small
-                const FALLBACKS = ['Xenova/gpt2','Xenova/distilgpt2'];
-                for (const f of FALLBACKS) if (!results.includes(f)) results.push(f);
-                // Ensure fallbacks appear first (already pushed at end if missing; reorder)
-                const ordered = FALLBACKS.filter(f=>results.includes(f)).concat(results.filter(r=>!FALLBACKS.includes(r)));
-                return ordered.slice(0, maxModels);
+                if (accepted.length === 0) {
+                    appendDiagnostic('Discovery empty; using minimal fallback list.');
+                    accepted.push('Xenova/gpt2','Xenova/distilgpt2');
+                }
+                return accepted.slice(0, maxModels);
             }
 
             trialModelsBtn.addEventListener('click', async () => {
-                const trialResultsDiv = document.getElementById('trial-results');
-                trialResultsDiv.style.display = 'block';
-                trialResultsDiv.innerHTML = '<b>Discovering open small models (no token)...</b>';
-                const TRIAL_PROMPT = 'Do planes fly higher than bees?';
                 trialModelsBtn.disabled = true;
-                const progressList = document.createElement('ul');
-                progressList.style.fontSize = '0.7rem';
-                trialResultsDiv.appendChild(progressList);
-                const addProgress = (text) => {
-                    const li = document.createElement('li');
-                    li.textContent = text;
-                    progressList.appendChild(li);
-                    trialResultsDiv.scrollTop = trialResultsDiv.scrollHeight;
-                };
+                const TRIAL_PROMPT = 'Do planes fly higher than bees?';
+                // Create a live-updating system message
+                const liveHeader = '### Model Trials (live, no token)';
+                appendMessage({ role: 'system', content: liveHeader + '\nStarting discovery...' });
+                const liveEl = chatBox.lastElementChild; // system container
+                const lines = [liveHeader, 'Starting discovery...'];
+                const flush = () => { liveEl.textContent = lines.join('\n'); };
+                const addLine = (l) => { lines.push(l); flush(); };
                 const yieldUI = async () => new Promise(r=>requestAnimationFrame(r));
                 function withTimeout(promise, ms, label) {
                     return Promise.race([
@@ -984,24 +965,24 @@ If you can answer the question directly with your existing knowledge or after us
                     discovered = await discoverOpenSmallModels(10);
                 } catch(e) {
                     appendDiagnostic('Discovery error: ' + e.message);
+                    addLine('Discovery error: ' + e.message);
                 }
                 if (!discovered.length) {
-                    addProgress('No models discovered dynamically. Using static fallbacks.');
+                    addLine('No models discovered dynamically. Using static fallbacks.');
                     discovered = ['Xenova/gpt2','Xenova/distilgpt2'];
                 }
-                // Ensure baseline (gpt2 + distilgpt2) attempted first regardless of discovery order
                 const baseline = ['Xenova/gpt2','Xenova/distilgpt2'];
                 const ordered = baseline.concat(discovered.filter(m=>!baseline.includes(m)));
-                // Limit total trials for responsiveness
                 const MODELS = ordered.slice(0,6);
-                addProgress('Models to try: ' + MODELS.join(', '));
+                addLine('Models to try: ' + MODELS.join(', '));
                 appendDiagnostic('Trial: Models -> ' + discovered.join(', '));
                 const collected = [];
                 try {
                     for (const modelId of MODELS) {
                         let loadTime='-', genTime='-', snippet='', error=null;
-                        let t0 = performance.now();
-                        addProgress(`Loading ${modelId} ...`);
+                        const t0 = performance.now();
+                        addLine(`Loading ${modelId} ...`);
+                        flush();
                         try {
                             const pipe = await withTimeout(pipeline('text-generation', modelId, { quantized: true }), 20000, 'load');
                             const t1 = performance.now();
@@ -1010,11 +991,12 @@ If you can answer the question directly with your existing knowledge or after us
                             loadTime = ((t1-t0)/1000).toFixed(2)+'s';
                             genTime = ((t2-t1)/1000).toFixed(2)+'s';
                             const full = Array.isArray(out) ? (out[0]?.generated_text||'') : (out.generated_text||'');
-                            snippet = full.trim().slice(0,400) || '(empty)';
-                            addProgress(`${modelId} ✓ load ${loadTime} gen ${genTime}`);
+                            snippet = full.trim().slice(0,200).replace(/\n+/g,' ') || '(empty)';
+                            addLine(`${modelId} ✓ load ${loadTime} gen ${genTime}`);
+                            addLine(`  → ${snippet}`);
                         } catch(e) {
                             error = e?.message || String(e);
-                            addProgress(`${modelId} ✗ ${error}`);
+                            addLine(`${modelId} ✗ ${error}`);
                             appendDiagnostic('Trial error '+modelId+': '+error);
                         }
                         collected.push({ model:modelId, loadTime, genTime, snippet, error });
@@ -1023,16 +1005,16 @@ If you can answer the question directly with your existing knowledge or after us
                 } finally {
                     trialModelsBtn.disabled = false;
                 }
-                let md = '### Trial Results (Dynamic, No Token)\n';
+                addLine('');
+                addLine('### Trial Summary');
                 for (const r of collected) {
                     if (r.error) {
-                        md += `- **${r.model}**: ERROR: ${r.error}\n`;
+                        addLine(`- ${r.model}: ERROR ${r.error}`);
                     } else {
-                        md += `- **${r.model}** (Load ${r.loadTime} / Gen ${r.genTime})\n  Response: ${r.snippet.replace(/\n+/g,' ')}\n`;
+                        addLine(`- ${r.model} (Load ${r.loadTime} / Gen ${r.genTime})`);
                     }
                 }
-                appendMessage({ role:'system', content: md });
-                appendDiagnostic('Trial: dynamic markdown summary appended to chat.');
+                appendDiagnostic('Trial: progress & summary streamed into chat message.');
             });
 
         // Event Listeners
