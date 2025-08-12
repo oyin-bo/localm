@@ -123,7 +123,7 @@
 
       let pipeline, AutoTokenizer;
       try {
-        const lib = await import('https://esm.sh/@xenova/transformers@3.0.0');
+        const lib = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.1');
         pipeline = lib.pipeline;
         AutoTokenizer = lib.AutoTokenizer;
       } catch (err) {
