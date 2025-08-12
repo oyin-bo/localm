@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="uk">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Локальний “Hello World” чат • Transformers.js</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: Canvas;
+      --fg: CanvasText;
+      --muted: color-mix(in oklab, var(--fg) 60%, transparent);
+      --border: color-mix(in oklab, var(--fg) 25%, transparent);
+      --bubble-me: color-mix(in oklab, var(--bg) 94%, var(--fg) 6%);
+      --bubble-bot: color-mix(in oklab, var(--bg) 88%, var(--fg) 12%);
+      --accent: #2f7bfd;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.35;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(6px);
+      background: color-mix(in oklab, var(--bg) 88%, transparent);
+    }
+
+    header .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    header h1 {
+      font-size: 1.05rem;
+      margin: 0;
+      margin-right: auto;
+    }
+
+    select,
+    button,
+    input,
+    textarea {
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+    }
+
+    select {
+      min-width: 270px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: .92rem;
+    }
+
+    main {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      height: calc(100dvh - 64px);
+    }
+
+    #messages {
+      overflow-y: auto;
+      padding: 14px 12px 8px;
+      scroll-behavior: smooth;
+    }
+
+    .msg {
+      max-width: 72ch;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      border-radius: 14px;
+      margin: 8px 0;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+
+    .msg.me {
+      background: var(--bubble-me);
+      margin-left: auto;
+    }
+
+    .msg.bot {
+      background: var(--bubble-bot);
+      margin-right: auto;
+    }
+
+    .msg.sys {
+      font-size: .9rem;
+      border-style: dashed;
+      color: var(--muted);
+    }
+
+    form#composer {
+      position: sticky;
+      bottom: 0;
+      padding: 10px 12px 14px;
+      border-top: 1px solid var(--border);
+      background: color-mix(in oklab, var(--bg) 94%, transparent);
+    }
+
+    .composer-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    textarea#prompt {
+      width: 100%;
+      min-height: 44px;
+      max-height: 35dvh;
+      resize: vertical;
+      padding: 10px 12px;
+    }
+
+    button#send {
+      background: color-mix(in oklab, var(--bg) 92%, transparent);
+      color: inherit;
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .status {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 0 2px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      box-shadow: 0 0 0 0 var(--border);
+      animation: pulse 1.2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 22%, transparent);
+      }
+
+      70% {
+        transform: scale(1.1);
+        box-shadow: 0 0 0 6px transparent;
+      }
+
+      100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 transparent;
+      }
+    }
+
+    /* Small screens first; content already optimized for mobile */
+    @media (min-width: 720px) {
+      main {
+        height: calc(100vh - 64px);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="row">
+      <h1>Локальний чат</h1>
+      <label for="model" class="muted" style="display:none">Модель</label>
+      <select id="model" title="Оберіть модель (Xenova)">
+        <option value="Xenova/distilgpt2">Xenova/distilgpt2 (швидка, маленька)</option>
+        <option value="Xenova/phi-3-mini-4k-instruct">Xenova/phi-3-mini-4k-instruct</option>
+        <option value="Xenova/t5-small">Xenova/t5-small (text2text)</option>
+        <option value="Xenova/gemma-2b-it">Xenova/gemma-2b-it</option>
+        <option value="Xenova/llama-3-8b-instruct">Xenova/llama-3-8b-instruct</option>
+        <option value="Xenova/Mistral-7B-Instruct-v0.2">Xenova/Mistral-7B-Instruct-v0.2</option>
+      </select>
+    </div>
+    <div id="status" class="status muted">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="status-text">Готово</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="messages" aria-live="polite" aria-busy="false">
+      <div class="msg sys">Підказка: спершу спробуйте маленькі моделі (наприклад, distilgpt2 або t5-small). Великі
+        (7B/8B) можуть не поміститися в памʼять браузера.</div>
+    </div>
+
+    <form id="composer" autocomplete="off">
+      <div class="composer-row">
+        <textarea id="prompt" placeholder="Напишіть повідомлення…" required></textarea>
+        <button id="send" type="submit">Надіслати</button>
+      </div>
+    </form>
+  </main>
+
+  <!-- Transformers.js через CDN (без фреймворків) -->
+  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0/dist/transformers.min.js"></script>
+  <script>
+      (() => {
+        const $ = (s) => document.querySelector(s);
+        const messagesEl = $("#messages");
+        const statusEl = $("#status");
+        const statusText = $("#status-text");
+        const modelSel = $("#model");
+        const promptEl = $("#prompt");
+        const sendBtn = $("#send");
+        const form = $("#composer");
+
+        // Режими/стан
+        let busy = false;
+        let currentModel = modelSel.value || "Xenova/distilgpt2";
+        const cache = new Map(); // model -> { pipe, task }
+        const chatHistory = [];  // { role: 'user'|'assistant', content: string }
+
+        // Зручні хелпери UI
+        function setStatus(text, isBusy) {
+          statusText.textContent = text;
+          messagesEl.setAttribute("aria-busy", isBusy ? "true" : "false");
+          busy = !!isBusy;
+          promptEl.disabled = !!isBusy;
+          sendBtn.disabled = !!isBusy;
+          modelSel.disabled = !!isBusy;
+        }
+        function pushMsg(role, text) {
+          const div = document.createElement("div");
+          div.className = `msg ${role}`;
+          div.textContent = text;
+          messagesEl.appendChild(div);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        // Визначення задачі для моделі
+        function taskForModel(model) {
+          if ((model || "").toLowerCase().includes("t5")) return "text2text-generation";
+          return "text-generation";
+        }
+
+        // Побудова простого prompt’а (мінімально універсальний)
+        function buildPrompt(model, history) {
+          const task = taskForModel(model);
+          const lastUser = history.slice().reverse().find(m => m.role === "user");
+          const userText = lastUser ? lastUser.content : "";
+
+          if (task === "text2text-generation") {
+            // T5 зазвичай у форматі інструкції
+            return `Instruction: Answer briefly.\nInput: ${userText}\nOutput:`;
+          } else {
+            // GPT-подібні моделі — простий діалоговий патерн
+            const sys = "You are a helpful assistant. Answer briefly.";
+            const turns = history.map(m => (m.role === "user" ? `User: ${m.content}` : `Assistant: ${m.content}`));
+            return `${sys}\n${turns.join("\n")}\nAssistant:`;
+          }
+        }
+
+        // Завантаження/кешування пайплайну
+        async function ensurePipeline(model) {
+          if (cache.has(model)) return cache.get(model);
+          const task = taskForModel(model);
+          setStatus(`Завантаження моделі (${task})…`, true);
+          try {
+            // Опційно: можна налаштувати шляхи для wasm:
+            // window.transformers.env.backends.onnx.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0/dist/wasm/";
+
+            const pipe = await window.transformers.pipeline(task, model);
+            const entry = { pipe, task };
+            cache.set(model, entry);
+            setStatus("Готово", false);
+            return entry;
+          } catch (err) {
+            setStatus("Помилка завантаження моделі", false);
+            pushMsg("sys", `Помилка при завантаженні '${model}': ${String(err && err.message || err)}`);
+            throw err;
+          }
+        }
+
+        async function generateAndReply() {
+          const model = currentModel;
+          const { pipe, task } = await ensurePipeline(model);
+          const prompt = buildPrompt(model, chatHistory);
+
+          setStatus("Генерація відповіді…", true);
+          try {
+            // Параметри генерації обрані консервативно для мобільних пристроїв
+            const genOpts = {
+              max_new_tokens: 64,
+              temperature: 0.8,
+              top_p: 0.9,
+              do_sample: true
+            };
+            const out = await pipe(prompt, genOpts);
+
+            // Узгодження виходу для різних пайплайнів
+            let fullText = "";
+            if (Array.isArray(out) && out.length) {
+              // text-generation: [{ generated_text }]
+              // text2text-generation: [{ generated_text }]
+              fullText = out[0].generated_text ?? out[0].summary_text ?? String(out[0].text || "");
+            } else if (typeof out === "string") {
+              fullText = out;
+            } else {
+              fullText = JSON.stringify(out);
+            }
+
+            // Для text-generation відповідь часто містить prompt + продовження — відтягуємо лише продовження
+            let reply = fullText;
+            if (task === "text-generation" && fullText.startsWith(prompt)) {
+              reply = fullText.slice(prompt.length);
+            }
+
+            reply = (reply || "").trim();
+            if (!reply) reply = "(порожня відповідь)";
+
+            chatHistory.push({ role: "assistant", content: reply });
+            pushMsg("bot", reply);
+          } catch (err) {
+            pushMsg("sys", `Помилка генерації: ${String(err && err.message || err)}`);
+          } finally {
+            setStatus("Готово", false);
+          }
+        }
+
+        // Обробники подій
+        modelSel.addEventListener("change", async () => {
+          currentModel = modelSel.value;
+          // Не завантажуємо модель негайно — лише коли треба згенерувати.
+          // Але повідомимо користувача:
+          pushMsg("sys", `Обрано модель: ${currentModel}`);
+        });
+
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (busy) return;
+          const text = (promptEl.value || "").trim();
+          if (!text) return;
+
+          chatHistory.push({ role: "user", content: text });
+          pushMsg("me", text);
+
+          promptEl.value = "";
+          await generateAndReply();
+          promptEl.focus();
+        });
+
+        // Стартовий стан
+        promptEl.focus();
+      })();
+  </script>
+</body>
+
