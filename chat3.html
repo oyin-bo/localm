@@ -79,10 +79,10 @@
   </div>
 
   <script type="module">
-    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0/dist/transformers.min.js';
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@3.7.1/dist/transformers.min.js';
 
     let worker = new Worker(URL.createObjectURL(new Blob([`
-      importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0/dist/transformers.min.js');
+      importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@3.7.1/dist/transformers.min.js');
 
       let chatPipeline = null;
       let currentModel = null;
