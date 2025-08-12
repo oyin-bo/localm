@@ -70,9 +70,16 @@
     const task = taskForModel(model);
     setStatus(`Завантаження моделі (${task})…`, true);
     try {
-      // Опційно: можна налаштувати шляхи для wasm:
-      // window.transformers.env.backends.onnx.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0/dist/wasm/";
-
+      // Перевірка наявності Transformers.js
+      if (!window.transformers || typeof window.transformers.pipeline !== 'function') {
+        const msg = "Transformers.js не завантажено або недоступно. Перевірте підключення скрипта (має бути перед chat-full.js).";
+        const err = new Error(msg);
+        setStatus("Помилка завантаження моделі", false);
+        pushMsg("sys", `Помилка при завантаженні '${model}': ${msg}`,
+          err.stack);
+        throw err;
+      }
+      // window.transformers.env.backends.onnx.wasm.wasmPaths = ...
       const pipe = await window.transformers.pipeline(task, model);
       const entry = { pipe, task };
       cache.set(model, entry);
@@ -157,4 +164,18 @@
 
   // Стартовий стан
   promptEl.focus();
+
+  // Глобальний обробник помилок
+  window.onerror = function (msg, url, line, col, error) {
+    let details = '';
+    if (error && error.stack) {
+      details = error.stack;
+    } else {
+      details = `${msg} at ${url}:${line}:${col}`;
+    }
+    pushMsg('sys', `global unhandled: ${msg}`, details);
+    // Не перериваємо стандартну поведінку
+    return false;
+  };
+
 })();

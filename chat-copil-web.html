@@ -19,6 +19,7 @@
       --err: #ff5c5c;
       --bubble-user: #2a2a34;
       --bubble-bot: #1d2233;
+      --bubble-err: #2a1416;
       --border: #2a2a34;
       --shadow: 0 8px 24px rgba(0,0,0,0.25);
     }
@@ -128,6 +129,8 @@
     }
     .msg.user .avatar { background: #223; color: #9fb4ff; }
     .msg.bot .avatar { background: #23252f; color: #9fe3c7; }
+    .msg.error .bubble { background: var(--bubble-err); border-color: var(--err); }
+    .msg.error .avatar { background: #3a1b1e; color: #ff9aa5; }
 
     form#composer {
       display: grid;
@@ -249,7 +252,7 @@
         elInput.disabled = busy;
         elSend.disabled = busy;
         elModel.disabled = busy;
-        document.getElementById('chat').setAttribute('aria-busy', String(busy));
+        elChat.setAttribute('aria-busy', String(busy));
 
         let text = 'Idle';
         let cls = '';
@@ -267,13 +270,15 @@
         });
       }
 
-      function addMessage(role, text) {
+      function addMessage(role, text, variant = '') {
         const msg = document.createElement('div');
-        msg.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+        const classes = ['msg', role === 'user' ? 'user' : 'bot'];
+        if (variant) classes.push(variant);
+        msg.className = classes.join(' ');
 
         const avatar = document.createElement('div');
         avatar.className = 'avatar';
-        avatar.textContent = role === 'user' ? 'U' : 'AI';
+        avatar.textContent = role === 'user' ? 'U' : (variant === 'error' ? '!' : 'AI');
 
         const bubble = document.createElement('div');
         bubble.className = 'bubble';
@@ -284,34 +289,56 @@
         elChat.appendChild(msg);
         scrollToBottom();
 
-        return bubble; // return node for potential updates
+        return bubble; // return node for updates
       }
 
-      function showError(err) {
+      function normalizeError(err) {
+        try {
+          if (err instanceof Error) {
+            return { name: err.name || 'Error', message: err.message || String(err), stack: err.stack || '' };
+          }
+          if (typeof err === 'string') {
+            return { name: 'Error', message: err, stack: '' };
+          }
+          if (err && typeof err === 'object') {
+            const msg = err.message || err.reason || JSON.stringify(err);
+            return { name: err.name || 'Error', message: String(msg), stack: err.stack || '' };
+          }
+          return { name: 'Error', message: String(err), stack: '' };
+        } catch {
+          return { name: 'Error', message: 'Unknown error', stack: '' };
+        }
+      }
+
+      function formatErrorText(err, context) {
+        const { name, message, stack } = normalizeError(err);
+        let text = `⚠️ ${context ? context + ': ' : ''}${name}: ${message}`;
+        if (stack) {
+          const first = String(stack).split('\n')[1] || '';
+          if (first.trim()) text += `\n${first.trim()}`;
+        }
+        return text;
+      }
+
+      function pushError(err, context = 'Error') {
+        const msg = formatErrorText(err, context);
+        addMessage('assistant', msg, 'error');
         elStatusText.textContent = 'Error';
         elStatusDot.className = 'dot err';
-        addMessage('assistant', '⚠️ ' + (err?.message || String(err)));
+        // Also record it in the dialogue history as an assistant turn
+        state.history.push({ role: 'assistant', content: msg });
       }
 
       async function ensureModelLoaded(modelId) {
-        // Cached?
         if (state.resources.has(modelId)) return state.resources.get(modelId);
 
         setBusy(true, 'loading');
         try {
           const task = resolveTask(modelId);
-
-          // Load pipeline
           const pipe = await pipeline(task, modelId, {
-            progress_callback: (p) => {
-              // Optional: could surface p.progress or p.status
-              // Keeping status general to avoid noisy UI.
-            },
+            progress_callback: () => {},
           });
-
-          // Load tokenizer (for chat templates when available)
           const tokenizer = await AutoTokenizer.from_pretrained(modelId).catch(() => null);
-
           const res = { task, pipe, tokenizer };
           state.resources.set(modelId, res);
           return res;
@@ -321,93 +348,87 @@
       }
 
       function buildPromptForModel(tokenizer, task, history, systemPrompt) {
-        // Convert app history to message list
         const messages = [];
         if (systemPrompt && systemPrompt.trim()) {
           messages.push({ role: 'system', content: systemPrompt.trim() });
         }
-        for (const m of history) {
-          messages.push({ role: m.role, content: m.content });
-        }
+        for (const m of history) messages.push({ role: m.role, content: m.content });
 
-        // Try model-native chat template if available
         if (tokenizer && typeof tokenizer.apply_chat_template === 'function') {
           try {
             const prompt = tokenizer.apply_chat_template(messages, {
               add_generation_prompt: true,
               tokenize: false,
             });
-            if (typeof prompt === 'string' && prompt.trim().length) {
-              return prompt;
-            }
-          } catch (_) {
-            // Fall back if no template or error.
+            if (typeof prompt === 'string' && prompt.trim().length) return prompt;
+          } catch (e) {
+            // Non-fatal: fall back to a simple format
+            console.warn('Chat template failed; falling back:', e);
           }
         }
 
-        // Fallback: simple, generic chat-style formatting
         const parts = [];
         if (systemPrompt) parts.push(`System: ${systemPrompt.trim()}`);
         for (const m of history) {
           const role = m.role === 'assistant' ? 'Assistant' : 'User';
           parts.push(`${role}: ${m.content}`);
         }
-        parts.push('Assistant:'); // generation cue
+        parts.push('Assistant:');
         return parts.join('\n');
       }
 
       async function generateReply(userText) {
-        const modelId = state.modelId;
-        const res = await ensureModelLoaded(modelId);
-        const { task, pipe, tokenizer } = res;
-
-        // Add user message to history
+        // Immediately reflect user's message in UI and history
+        addMessage('user', userText);
         state.history.push({ role: 'user', content: userText });
 
-        // Render user message
-        addMessage('user', userText);
-
-        // Placeholder assistant message (will be replaced when done)
+        // Prepare a placeholder assistant bubble that we will update
         const botBubble = addMessage('assistant', '…');
 
+        // 1) Ensure model is loaded
+        try {
+          await ensureModelLoaded(state.modelId);
+        } catch (err) {
+          const text = formatErrorText(err, 'Model loading failed');
+          botBubble.textContent = text;
+          state.history.push({ role: 'assistant', content: text });
+          return; // stop here; do not attempt generation
+        }
+
+        // 2) Generate
         setBusy(true, 'generating');
         try {
+          const { task, pipe, tokenizer } = state.resources.get(state.modelId);
           const prompt = buildPromptForModel(tokenizer, task, state.history, state.systemPrompt);
 
-          // Generation options (conservative defaults)
           const genOpts = {
             max_new_tokens: 200,
             temperature: 0.7,
             top_p: 0.95,
             do_sample: true,
             repetition_penalty: 1.1,
-            // For causal LMs, this returns only the new text
             return_full_text: false,
           };
 
           const output = await pipe(prompt, genOpts);
-
           let text = '';
           if (Array.isArray(output) && output.length) {
-            // text-generation and text2text-generation both return generated_text
-            text = output[0].generated_text ?? '';
-            // Some tasks may return other keys; keep a graceful fallback
-            if (!text) {
-              text = output[0].summary_text || output[0].translation_text || '';
-            }
+            text = output[0].generated_text ?? output[0].summary_text ?? output[0].translation_text ?? '';
           } else if (typeof output === 'string') {
             text = output;
           }
-
           text = (text || '').toString().trim();
           if (!text) text = '(no output)';
 
-          // Update UI and history
           botBubble.textContent = text;
           state.history.push({ role: 'assistant', content: text });
           scrollToBottom();
         } catch (err) {
-          botBubble.textContent = '⚠️ ' + (err?.message || String(err));
+          const text = formatErrorText(err, 'Generation failed');
+          botBubble.textContent = text;
+          state.history.push({ role: 'assistant', content: text });
+          elStatusText.textContent = 'Error';
+          elStatusDot.className = 'dot err';
         } finally {
           setBusy(false);
         }
@@ -419,8 +440,14 @@
         const text = (elInput.value || '').trim();
         if (!text || state.busy) return;
         elInput.value = '';
-        await generateReply(text);
-        elInput.focus();
+        try {
+          await generateReply(text);
+        } catch (err) {
+          // Catch any unexpected errors from generateReply
+          pushError(err, 'Unexpected chat error');
+        } finally {
+          elInput.focus();
+        }
       });
 
       elInput.addEventListener('keydown', (e) => {
@@ -434,31 +461,39 @@
         if (state.busy) return;
         const nextId = elModel.value;
         state.modelId = nextId;
-
-        // Indicate model switch
         addMessage('assistant', `Switching to model: ${nextId}`);
-        // Warm-load in background; keep UI responsive
         try {
           await ensureModelLoaded(nextId);
           elStatusText.textContent = 'Ready';
           elStatusDot.className = 'dot ok';
         } catch (err) {
-          showError(err);
+          pushError(err, 'Model switch failed');
         }
+      });
+
+      // Global error surfaces
+      window.addEventListener('error', (event) => {
+        const { message, filename, lineno, colno, error } = event;
+        const meta = filename ? ` @ ${filename}:${lineno}:${colno}` : '';
+        const err = error || new Error((message || 'Uncaught error') + meta);
+        pushError(err, 'Uncaught error');
+      });
+
+      window.addEventListener('unhandledrejection', (event) => {
+        pushError(event.reason, 'Unhandled promise rejection');
       });
 
       // Boot
       (async function init() {
-        // Prime UI with a friendly greeting
         addMessage('assistant', 'Hello! Pick a model above and say hi. All generation happens in your browser.');
-        // Preload default model lazily after a short delay to let the UI paint
+        // Preload default model after a short delay
         setTimeout(async () => {
           try {
             await ensureModelLoaded(state.modelId);
             elStatusText.textContent = 'Ready';
             elStatusDot.className = 'dot ok';
           } catch (err) {
-            showError(err);
+            pushError(err, 'Initial model preload failed');
           }
         }, 150);
       })();
