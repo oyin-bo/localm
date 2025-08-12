@@ -23,12 +23,22 @@
     sendBtn.disabled = !!isBusy;
     modelSel.disabled = !!isBusy;
   }
-  function pushMsg(role, text) {
+  function pushMsg(role, text, details) {
     const div = document.createElement("div");
     div.className = `msg ${role}`;
-    div.textContent = text;
+    if (role === 'sys' && details) {
+      // Показати повідомлення з розгортанням stack trace
+      div.innerHTML = `<span>${text}</span><details style="margin-top:6px;"><summary style="cursor:pointer;user-select:none;">Деталі (stack trace)</summary><pre style="white-space:pre-wrap;font-size:.92em;">${escapeHtml(details)}</pre></details>`;
+    } else {
+      div.textContent = text;
+    }
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // Захист від XSS у stack trace
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   // Визначення задачі для моделі
@@ -70,7 +80,8 @@
       return entry;
     } catch (err) {
       setStatus("Помилка завантаження моделі", false);
-      pushMsg("sys", `Помилка при завантаженні '${model}': ${String(err && err.message || err)}`);
+      pushMsg("sys", `Помилка при завантаженні '${model}': ${String(err && err.message || err)}`,
+        err && err.stack ? err.stack : undefined);
       throw err;
     }
   }
@@ -115,7 +126,8 @@
       chatHistory.push({ role: "assistant", content: reply });
       pushMsg("bot", reply);
     } catch (err) {
-      pushMsg("sys", `Помилка генерації: ${String(err && err.message || err)}`);
+      pushMsg("sys", `Помилка генерації: ${String(err && err.message || err)}`,
+        err && err.stack ? err.stack : undefined);
     } finally {
       setStatus("Готово", false);
     }
