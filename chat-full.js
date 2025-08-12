@@ -28,7 +28,7 @@
     div.className = `msg ${role}`;
     if (role === 'sys' && details) {
       // Показати повідомлення з розгортанням stack trace
-      div.innerHTML = `<span>${text}</span><details style="margin-top:6px;"><summary style="cursor:pointer;user-select:none;">Деталі (stack trace)</summary><pre style="white-space:pre-wrap;font-size:.92em;">${escapeHtml(details)}</pre></details>`;
+    div.innerHTML = `<span>${text}</span><pre class="error-details">${escapeHtml(details)}</pre>`;
     } else {
       div.textContent = text;
     }
