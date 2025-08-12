@@ -587,17 +587,31 @@
 
           // Stream tokens
           let full = '';
-          for await (const out of state.pipe(inputText, genOptions)) {
-            const tokenText =
-              (out && out.token && typeof out.token.text === 'string')
-                ? out.token.text
-                : (out?.generated_text && out?.generated_text[0]?.token?.text)
-                  ? out.generated_text[0].token.text
-                  : (out?.text) ? out.text : '';
-            if (tokenText) {
-              full += tokenText;
-              updateLastAssistant(full);
+          let supportsStreaming = false;
+          try {
+            const result = state.pipe(inputText, { ...genOptions, stream: true });
+            supportsStreaming = typeof result?.[Symbol.asyncIterator] === 'function';
+          } catch (e) {
+            supportsStreaming = false;
+          }
+
+          if (supportsStreaming) {
+            let full = '';
+            for await (const out of state.pipe(inputText, genOptions)) {
+              const tokenText = out?.token?.text || out?.text || '';
+              if (tokenText) {
+                full += tokenText;
+                updateLastAssistant(full);
+              }
             }
+            state.messages.push({ role: 'assistant', content: full });
+          } else {
+            const out = await state.pipe(inputText, { ...genOptions, stream: false });
+            const text = Array.isArray(out)
+              ? out[0]?.generated_text ?? out[0]?.summary_text ?? out[0]?.translation_text ?? ''
+              : out?.generated_text ?? out?.text ?? '';
+            updateLastAssistant(text || '(no output)');
+            state.messages.push({ role: 'assistant', content: text });
           }
 
           // Some pipelines only return final output when not streaming; if empty, try non-stream as fallback
