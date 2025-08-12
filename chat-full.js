@@ -184,3 +184,14 @@ window.onerror = function (msg, url, line, col, error) {
   pushMsg('sys', `global unhandled: ${msg}`, details);
   return false;
 };
+
+// DEBUG: перевірка виконання модуля
+try {
+  const el = document.querySelector('#messages');
+  if (el) {
+    const div = document.createElement('div');
+    div.className = 'msg sys';
+    div.textContent = '[debug] JS loaded';
+    el.appendChild(div);
+  }
+} catch (e) {}
