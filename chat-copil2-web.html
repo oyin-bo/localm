@@ -64,6 +64,7 @@ const statusEl = document.getElementById('status');
 const toastEl = document.getElementById('toast');
 const tokenModal = document.getElementById('token-modal');
 const tokenInput = document.getElementById('token-input');
+hideTokenModal();
 
 let state = { pipe:null, modelId:null, task:'text-generation' };
 const savedToken = localStorage.getItem('hf_token'); if(savedToken){env.HF_TOKEN=savedToken;}
