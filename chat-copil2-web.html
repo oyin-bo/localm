@@ -1,502 +1,164 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Local Chat with Transformers.js</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #0f1115;
-      --panel: #171a21;
-      --muted: #8a8f98;
-      --text: #e8eaf0;
-      --accent: #6ea8fe;
-      --accent-2: #51d19a;
-      --error: #ff6b6b;
-      --border: #2a2f39;
-    }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
-    body {
-      font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
-      background: var(--bg);
-      color: var(--text);
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 10px;
-    }
-    header, footer {
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      padding: 10px 12px;
-    }
-    header {
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: 10px;
-      align-items: center;
-    }
-    .controls {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    select, button, input[type="text"] {
-      background: #11141a;
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 8px 10px;
-      border-radius: 8px;
-      outline: none;
-    }
-    button {
-      cursor: pointer;
-      background: #12151c;
-      transition: background 0.15s ease;
-    }
-    button:hover { background: #161b25; }
-    .btn-accent { border-color: #2b3850; }
-    .btn-accent:hover { background: #162134; }
-    .status { color: var(--muted); font-size: 12px; }
-    main {
-      padding: 10px 12px;
-      overflow: auto;
-    }
-    .chat {
-      max-width: 900px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .msg {
-      display: flex;
-      gap: 10px;
-    }
-    .msg.user { justify-content: flex-end; }
-    .msg.assistant { justify-content: flex-start; }
-    .bubble {
-      max-width: min(90%, 720px);
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .msg.user .bubble { background: #1b2433; }
-    .msg.assistant .bubble { background: #141923; }
-    footer {
-      border-top: 1px solid var(--border);
-      border-bottom: none;
-    }
-    .composer {
-      max-width: 900px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      align-items: end;
-    }
-    textarea {
-      width: 100%;
-      min-height: 52px;
-      max-height: 180px;
-      resize: vertical;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: #11141a;
-      color: var(--text);
-      outline: none;
-    }
-    .toast {
-      position: fixed;
-      bottom: 12px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #11141a;
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 8px 12px;
-      border-radius: 8px;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .2s ease;
-    }
-    .toast.show { opacity: 1; }
-    /* Modal */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,.5);
-      display: grid;
-      place-items: center;
-      padding: 20px;
-    }
-    .modal {
-      width: min(560px, 92vw);
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.35);
-    }
-    .modal h3 { margin: 0 0 8px 0; font-size: 16px; }
-    .modal p { margin: 0 0 10px 0; color: var(--muted); }
-    .modal .row { display: flex; gap: 8px; margin-top: 8px; }
-    .modal input[type="password"], .modal input[type="text"] {
-      flex: 1;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #11141a;
-      color: var(--text);
-      outline: none;
-    }
-    .modal .actions {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-      margin-top: 12px;
-    }
-    .small { font-size: 12px; color: var(--muted); }
-    .hint { color: var(--accent-2); }
-    .error { color: var(--error); }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Local Chat with Transformers.js</title>
+<style>
+  body { margin:0; font-family: system-ui, sans-serif; background:#0f1115; color:#e8eaf0; display:grid; grid-template-rows:auto 1fr auto; height:100vh; }
+  header, footer { background:#171a21; padding:8px 12px; border-bottom:1px solid #2a2f39; }
+  header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  select,button,textarea,input { background:#11141a; color:#e8eaf0; border:1px solid #2a2f39; border-radius:6px; padding:6px 8px; font:inherit; }
+  button { cursor:pointer; }
+  main { overflow:auto; padding:10px; }
+  .chat { display:flex; flex-direction:column; gap:10px; max-width:900px; margin:auto; }
+  .msg { display:flex; }
+  .msg.user { justify-content:flex-end; }
+  .bubble { padding:8px 10px; border-radius:8px; max-width:80%; white-space:pre-wrap; word-break:break-word; }
+  .msg.user .bubble { background:#1b2433; }
+  .msg.assistant .bubble { background:#141923; }
+  .toast { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); background:#11141a; padding:6px 10px; border:1px solid #2a2f39; border-radius:6px; opacity:0; transition:opacity .2s; }
+  .toast.show { opacity:1; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); display:grid; place-items:center; }
+  .modal { background:#171a21; padding:16px; border-radius:8px; width:min(400px,90%); }
+</style>
 </head>
 <body>
-  <header>
-    <div class="controls">
-      <label for="model" class="small">Model</label>
-      <select id="model" title="Choose a model">
-        <option value="Xenova/distilGPT2">Xenova/distilGPT2 (tiny, demo)</option>
-        <option value="Xenova/TinyLlama-1.1B-Chat-v1.0">Xenova/TinyLlama-1.1B-Chat-v1.0</option>
-        <option value="Xenova/Mistral-7B-Instruct-v0.2">Xenova/Mistral-7B-Instruct-v0.2 (may require HF token)</option>
-      </select>
-      <button id="set-token" class="btn-accent">Set token</button>
-      <span id="status" class="status">Idle</span>
-    </div>
-  </header>
+<header>
+  <label for="model">Model:</label>
+  <select id="model">
+    <option value="Xenova/distilGPT2">Xenova/distilGPT2</option>
+    <option value="Xenova/TinyLlama-1.1B-Chat-v1.0">Xenova/TinyLlama-1.1B-Chat-v1.0</option>
+    <option value="Xenova/Mistral-7B-Instruct-v0.2">Xenova/Mistral-7B-Instruct-v0.2</option>
+  </select>
+  <button id="set-token">Set token</button>
+  <span id="status">Idle</span>
+</header>
+<main><div id="chat" class="chat"></div></main>
+<footer>
+  <textarea id="input" placeholder="Type here…" rows="2" style="flex:1;"></textarea>
+  <button id="send">Send</button>
+</footer>
 
-  <main>
-    <div id="chat" class="chat"></div>
-  </main>
+<div id="toast" class="toast"></div>
 
-  <footer>
-    <div class="composer">
-      <textarea id="input" placeholder="Say hi…" spellcheck="true"></textarea>
-      <button id="send">Send</button>
-    </div>
-  </footer>
-
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-  <!-- Token Modal -->
-  <div id="token-backdrop" class="modal-backdrop" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="token-title">
-      <h3 id="token-title">Hugging Face access token</h3>
-      <p class="message">Enter your Hugging Face access token:</p>
-      <div class="row">
-        <input id="token-input" type="password" placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
-        <button id="token-visibility" title="Show/Hide">👁️</button>
-      </div>
-      <p class="small">Your token will be cached locally in your browser (localStorage) and sent only to Hugging Face to authorize model file downloads.</p>
-      <div class="actions">
-        <button class="cancel">Cancel</button>
-        <button class="save btn-accent">Save token</button>
-      </div>
+<div id="token-modal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3>Enter HF token</h3>
+    <input id="token-input" type="password" placeholder="hf_xxx" style="width:100%"/>
+    <div style="margin-top:8px;text-align:right;">
+      <button id="token-cancel">Cancel</button>
+      <button id="token-save">Save</button>
     </div>
   </div>
+</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers"></script>
-  <script>
-    (function () {
-      const { pipeline, env } = window.transformers;
+<script src="https://cdn.jsdelivr.net/npm/@xenova/transformers"></script>
+<script>
+const { pipeline, env } = window.transformers;
+const chatEl = document.getElementById('chat');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const modelSel = document.getElementById('model');
+const statusEl = document.getElementById('status');
+const toastEl = document.getElementById('toast');
+const tokenModal = document.getElementById('token-modal');
+const tokenInput = document.getElementById('token-input');
 
-      // Restore token from localStorage
-      const savedToken = localStorage.getItem('hf_token');
-      if (savedToken) {
-        env.HF_TOKEN = savedToken;
-      }
+let state = { pipe:null, modelId:null, task:'text-generation' };
+const savedToken = localStorage.getItem('hf_token'); if(savedToken){env.HF_TOKEN=savedToken;}
 
-      // Basic state
-      const state = {
-        pipe: null,
-        modelId: null,
-        task: 'text-generation',
-        messages: [],
-        loading: false,
-      };
-
-      // UI elements
-      const chatEl = document.getElementById('chat');
-      const inputEl = document.getElementById('input');
-      const sendBtn = document.getElementById('send');
-      const modelSel = document.getElementById('model');
-      const statusEl = document.getElementById('status');
-      const toastEl = document.getElementById('toast');
-
-      // Modal elements
-      const tokenBackdrop = document.getElementById('token-backdrop');
-      const tokenMsgEl = tokenBackdrop.querySelector('.message');
-      const tokenInputEl = document.getElementById('token-input');
-      const tokenSaveBtn = tokenBackdrop.querySelector('.save');
-      const tokenCancelBtn = tokenBackdrop.querySelector('.cancel');
-      const tokenVisibilityBtn = document.getElementById('token-visibility');
-
-      // Helpers
-      function showStatus(text) {
-        statusEl.textContent = text || '';
-      }
-      function showTransientToast(text) {
-        if (!text) return;
-        toastEl.textContent = text;
-        toastEl.classList.add('show');
-        setTimeout(() => toastEl.classList.remove('show'), 1600);
-      }
-      function isUnauthorizedError(err) {
-        const msg = (err && (err.message || String(err))) || '';
-        return msg.includes('Unauthorized access to file');
-      }
-      function isAsyncIterable(obj) {
-        return obj && typeof obj[Symbol.asyncIterator] === 'function';
-      }
-      function setToken(token) {
-        const clean = (token || '').trim();
-        if (clean) {
-          env.HF_TOKEN = clean;
-          localStorage.setItem('hf_token', clean);
-        } else {
-          env.HF_TOKEN = undefined;
-          localStorage.removeItem('hf_token');
-        }
-      }
-
-      function addMessage(role, content) {
-        const row = document.createElement('div');
-        row.className = 'msg ' + role;
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.textContent = content;
-        row.appendChild(bubble);
-        chatEl.appendChild(row);
-        chatEl.scrollTop = chatEl.scrollHeight;
-      }
-
-      function startAssistantMessage() {
-        const row = document.createElement('div');
-        row.className = 'msg assistant';
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.textContent = '…';
-        row.appendChild(bubble);
-        chatEl.appendChild(row);
-        chatEl.scrollTop = chatEl.scrollHeight;
-        return bubble;
-      }
-
-      function updateBubble(bubble, text) {
-        bubble.textContent = text;
-        chatEl.scrollTop = chatEl.scrollHeight;
-      }
-
-      function extractText(out) {
-        if (!out) return '';
-        if (Array.isArray(out)) {
-          const o = out[0] || {};
-          return o.generated_text || o.summary_text || o.translation_text || o.text || '';
-        }
-        return out.generated_text || out.text || '';
-      }
-
-      function promptForToken(message) {
-        return new Promise((resolve) => {
-          tokenMsgEl.textContent = message || 'Enter your Hugging Face access token:';
-          tokenInputEl.value = localStorage.getItem('hf_token') || '';
-          tokenInputEl.type = 'password';
-          tokenBackdrop.hidden = false;
-          setTimeout(() => tokenInputEl.focus(), 0);
-
-          function cleanup() {
-            tokenSaveBtn.removeEventListener('click', onSave);
-            tokenCancelBtn.removeEventListener('click', onCancel);
-            tokenInputEl.removeEventListener('keydown', onKeydown);
-            tokenVisibilityBtn.removeEventListener('click', onToggle);
-            tokenBackdrop.hidden = true;
-          }
-          function onSave() {
-            const val = tokenInputEl.value.trim();
-            cleanup();
-            resolve(val || null);
-          }
-          function onCancel() {
-            cleanup();
-            resolve(null);
-          }
-          function onKeydown(e) {
-            if (e.key === 'Enter') onSave();
-            if (e.key === 'Escape') onCancel();
-          }
-          function onToggle() {
-            tokenInputEl.type = tokenInputEl.type === 'password' ? 'text' : 'password';
-          }
-          tokenSaveBtn.addEventListener('click', onSave);
-          tokenCancelBtn.addEventListener('click', onCancel);
-          tokenInputEl.addEventListener('keydown', onKeydown);
-          tokenVisibilityBtn.addEventListener('click', onToggle);
-        });
-      }
-
-      async function withAuthRetry(fn, promptText) {
-        try {
-          return await fn();
-        } catch (e) {
-          if (isUnauthorizedError(e)) {
-            const token = await promptForToken(
-              promptText || 'This model requires access via a Hugging Face token.'
-            );
-            if (!token) throw e;
-            setToken(token);
-            return await fn();
-          }
-          throw e;
-        }
-      }
-
-      async function ensurePipeline(modelId, task) {
-        if (state.pipe && state.modelId === modelId && state.task === task) return state.pipe;
-        state.loading = true;
-        showStatus('Loading model…');
-        try {
-          // device: 'webgpu' will use WebGPU when available, else fall back.
-          const pipe = await withAuthRetry(
-            () => pipeline(task, modelId, { device: 'webgpu' }),
-            'Access to this model repository requires a Hugging Face token.'
-          );
-          state.pipe = pipe;
-          state.modelId = modelId;
-          state.task = task;
-          showStatus('Model ready');
-          return pipe;
-        } finally {
-          state.loading = false;
-        }
-      }
-
-      async function generate(text, bubble) {
-        const modelId = modelSel.value;
-        await ensurePipeline(modelId, 'text-generation');
-
-        const genOptions = {
-          max_new_tokens: 256,
-          temperature: 0.7,
-          top_p: 0.95,
-          repetition_penalty: 1.1,
+function addMessage(role,text){
+  const row=document.createElement('div');
+  row.className='msg '+role;
+  const bub=document.createElement('div');
+  bub.className='bubble';
+  bub.textContent=text;
+  row.appendChild(bub);
+  chatEl.appendChild(row);
+  chatEl.scrollTop=chatEl.scrollHeight;
+  return bub;
+}
+function showToast(msg){
+  toastEl.textContent=msg;
+  toastEl.classList.add('show');
+  setTimeout(()=>toastEl.classList.remove('show'),2000);
+}
+function showTokenModal(){
+  tokenModal.hidden=false;
+  tokenInput.value=localStorage.getItem('hf_token')||'';
+}
+function hideTokenModal(){
+  tokenModal.hidden=true;
+}
+function setToken(tok){
+  if(tok){ env.HF_TOKEN=tok; localStorage.setItem('hf_token',tok);}
+  else{ delete env.HF_TOKEN; localStorage.removeItem('hf_token');}
+}
+function isUnauthorizedError(err){
+  return (err && (err.message||String(err))).includes('Unauthorized access to file');
+}
+async function withAuthRetry(fn){
+  try {
+    return await fn();
+  } catch(e){
+    if(isUnauthorizedError(e)){
+      showTokenModal();
+      return new Promise((resolve,reject)=>{
+        tokenModal.querySelector('#token-save').onclick=()=>{
+          const val=tokenInput.value.trim();
+          hideTokenModal();
+          if(val){ setToken(val); fn().then(resolve).catch(reject);}
+          else{ reject(e);}
         };
-
-        let full = '';
-        let streamObj = null;
-
-        // Try streaming if supported
-        try {
-          streamObj = state.pipe(text, { ...genOptions, stream: true });
-        } catch (e) {
-          streamObj = null;
-        }
-
-        if (isAsyncIterable(streamObj)) {
-          try {
-            for await (const out of streamObj) {
-              const tokenText = (out && (out.token && out.token.text)) || out?.text || '';
-              if (tokenText) {
-                full += tokenText;
-                updateBubble(bubble, full);
-              }
-            }
-            return;
-          } catch (e) {
-            if (isUnauthorizedError(e)) {
-              // Ask for token and retry once (non-streaming for simplicity)
-              const token = await promptForToken('Authorization required. Enter your Hugging Face token:');
-              if (token) {
-                setToken(token);
-                const out = await state.pipe(text, { ...genOptions, stream: false });
-                full = extractText(out) || '(no output)';
-                updateBubble(bubble, full);
-                return;
-              } else {
-                updateBubble(bubble, 'Token required to continue.');
-                return;
-              }
-            } else {
-              // Fall through to non-streaming path on other errors
-            }
-          }
-        }
-
-        // Fallback to non-streaming (with auth retry)
-        const out = await withAuthRetry(
-          () => state.pipe(text, { ...genOptions, stream: false }),
-          'Authorization required to download model files. Enter your Hugging Face token:'
-        );
-        full = extractText(out) || '(no output)';
-        updateBubble(bubble, full);
-      }
-
-      async function onSend() {
-        const text = inputEl.value.trim();
-        if (!text) return;
-
-        inputEl.value = '';
-        addMessage('user', text);
-        const bubble = startAssistantMessage();
-
-        try {
-          await generate(text, bubble);
-        } catch (e) {
-          if (isUnauthorizedError(e)) {
-            updateBubble(bubble, 'This model requires a Hugging Face token. Click “Set token” and try again.');
-            return;
-          }
-          console.error(e);
-          updateBubble(bubble, 'Error: ' + (e?.message || String(e)));
-        }
-      }
-
-      // Wire up UI events
-      sendBtn.addEventListener('click', onSend);
-      inputEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          onSend();
-        }
+        tokenModal.querySelector('#token-cancel').onclick=()=>{
+          hideTokenModal();
+          reject(e);
+        };
       });
-      document.getElementById('set-token').addEventListener('click', async () => {
-        const token = await promptForToken('Enter your Hugging Face access token:');
-        if (token !== null) {
-          setToken(token);
-          showTransientToast(token ? 'Token saved' : 'Token cleared');
-        }
-      });
+    }
+    throw e;
+  }
+}
+async function ensurePipeline(modelId,task){
+  if(state.pipe && state.modelId===modelId && state.task===task) return state.pipe;
+  statusEl.textContent='Loading model…';
+  const pipe=await withAuthRetry(()=>pipeline(task,modelId,{device:'webgpu'}));
+  state.pipe=pipe; state.modelId=modelId; state.task=task;
+  statusEl.textContent='Ready';
+  return pipe;
+}
+function isAsyncIterable(obj){ return obj && typeof obj[Symbol.asyncIterator]==='function'; }
+async function generate(text,bubble){
+  const modelId=modelSel.value;
+  await ensurePipeline(modelId,'text-generation');
+  const opts={max_new_tokens:128,temperature:0.7,top_p:0.9,repetition_penalty:1.1};
+  let streamObj; try{ streamObj=state.pipe(text,{...opts,stream:true}); }catch{}
+  if(isAsyncIterable(streamObj)){
+    let full=''; for await (const out of streamObj){
+      const t=(out.token && out.token.text)||out.text||''; full+=t; bubble.textContent=full;
+    } return;
+  }
+  const out=await withAuthRetry(()=>state.pipe(text,{...opts,stream:false}));
+  const textOut=Array.isArray(out)?(out[0]?.generated_text||out[0]?.text): (out.generated_text||out.text)||'';
+  bubble.textContent=textOut;
+}
+async function onSend(){
+  const val=inputEl.value.trim(); if(!val) return;
+  inputEl.value='';
+  addMessage('user',val);
+  const bub=addMessage('assistant','…');
+  try { await generate(val,bub); }
+  catch(e){ bub.textContent='Error: '+(e.message||e); }
+}
+sendBtn.onclick=onSend;
+inputEl.onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); onSend(); } };
+document.getElementById('set-token').onclick=()=>{ showTokenModal(); tokenModal.querySelector('#token-save').onclick=()=>{
+  const val=tokenInput.value.trim();
+  hideTokenModal(); setToken(val); showToast(val?'Token saved':'Token cleared');
+}; tokenModal.querySelector('#token-cancel').onclick=()=>hideTokenModal(); };
 
-      // Initial message
-      addMessage('assistant', 'Hello! I run fully in your browser using Transformers.js. Pick a model above and say hi.\n\nOn-device, no server calls.');
-
-      // Optional: auto-select last used model
-      try {
-        const lastModel = localStorage.getItem('last_model');
-        if (lastModel) modelSel.value = lastModel;
-      } catch {}
-      modelSel.addEventListener('change', () => {
-        localStorage.setItem('last_model', modelSel.value);
-        // Invalidate existing pipeline so we reload for the new model
-        state.pipe = null;
-        state.modelId = null;
-        showStatus('Idle');
-      });
-    })();
-  </script>
+addMessage('assistant','Hello! Fully local via Transformers.js. Choose model and send a message.');
+</script>
 </body>
 </html>
