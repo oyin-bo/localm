@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>AI Chat App</title>
+  <title>Mobile Chat App with Transformers.js</title>
   <style>
     body {
       margin: 0;
@@ -13,16 +13,11 @@
       height: 100vh;
       background: #f5f5f5;
     }
-    header {
-      padding: 10px;
-      background: #333;
-      color: white;
-      text-align: center;
-    }
     #model-select {
-      width: 100%;
       padding: 10px;
       font-size: 1em;
+      width: 100%;
+      box-sizing: border-box;
     }
     #chat {
       flex: 1;
@@ -35,13 +30,14 @@
       padding: 10px;
       border-radius: 5px;
       max-width: 80%;
+      word-wrap: break-word;
     }
     .user {
       background: #d1e7dd;
       align-self: flex-end;
     }
     .bot {
-      background: #e2e3e5;
+      background: #f8d7da;
       align-self: flex-start;
     }
     #input-area {
@@ -67,9 +63,6 @@
   </style>
 </head>
 <body>
-  <header>
-    <h1>AI Chat App</h1>
-  </header>
   <select id="model-select">
     <option value="Xenova/distilgpt2">Xenova/distilgpt2</option>
     <option value="Xenova/phi-3-mini-4k-instruct">Xenova/phi-3-mini-4k-instruct</option>
@@ -81,23 +74,55 @@
   <div id="status">Select a model to begin</div>
   <div id="chat"></div>
   <div id="input-area">
-    <input type="text" id="user-input" placeholder="Type your message..." />
+    <input type="text" id="user-input" placeholder="Type a message..." />
     <button id="send-btn">Send</button>
   </div>
 
   <script type="module">
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0/dist/transformers.min.js';
+
+    let worker = new Worker(URL.createObjectURL(new Blob([`
+      importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0/dist/transformers.min.js');
+
+      let chatPipeline = null;
+      let currentModel = null;
+
+      self.onmessage = async (e) => {
+        const { type, data } = e.data;
+        try {
+          if (type === 'load') {
+            self.postMessage({ type: 'status', data: 'Loading model...' });
+            chatPipeline = await window.pipeline('text-generation', data.model, { progress_callback: (x) => self.postMessage({ type: 'status', data: 'Progress: ' + x }) });
+            currentModel = data.model;
+            self.postMessage({ type: 'status', data: 'Model loaded: ' + currentModel });
+          } else if (type === 'generate') {
+            if (!chatPipeline) throw new Error('Model not loaded');
+            self.postMessage({ type: 'status', data: 'Generating response...' });
+            const output = await chatPipeline(data.text, { max_new_tokens: 100 });
+            self.postMessage({ type: 'response', data: output[0].generated_text });
+            self.postMessage({ type: 'status', data: 'Ready' });
+          }
+        } catch (err) {
+          self.postMessage({ type: 'error', data: err.stack });
+        }
+      };
+
+      self.onerror = (e) => {
+        self.postMessage({ type: 'error', data: e.message + '\\n' + e.filename + ':' + e.lineno });
+      };
+    `], { type: 'application/javascript' })));
+
     const chat = document.getElementById('chat');
     const input = document.getElementById('user-input');
     const sendBtn = document.getElementById('send-btn');
     const modelSelect = document.getElementById('model-select');
     const status = document.getElementById('status');
 
-    let worker;
-    let busy = false;
+    let isBusy = false;
 
     function appendMessage(text, sender) {
       const msg = document.createElement('div');
-      msg.className = `message ${sender}`;
+      msg.className = 'message ' + sender;
       msg.textContent = text;
       chat.appendChild(msg);
       chat.scrollTop = chat.scrollHeight;
@@ -107,63 +132,41 @@
       status.textContent = text;
     }
 
-    function initWorker(model) {
-      if (worker) worker.terminate();
-      setStatus('Loading model...');
-      busy = true;
-      worker = new Worker(URL.createObjectURL(new Blob([`
-        importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0/dist/transformers.min.js');
-
-        let pipeline;
-        self.onmessage = async (e) => {
-          const { type, data } = e.data;
-          try {
-            if (type === 'load') {
-              pipeline = await window.transformers.pipeline('text-generation', data.model, { progress_callback: (x) => self.postMessage({ type: 'progress', data: x }) });
-              self.postMessage({ type: 'ready' });
-            } else if (type === 'generate') {
-              const output = await pipeline(data.text, { max_new_tokens: 100 });
-              self.postMessage({ type: 'response', data: output[0].generated_text });
-            }
-          } catch (err) {
-            self.postMessage({ type: 'error', data: err.stack });
-          }
-        };
-      `], { type: 'application/javascript' })));
-
-      worker.onmessage = (e) => {
-        const { type, data } = e.data;
-        if (type === 'ready') {
-          setStatus('Model ready');
-          busy = false;
-        } else if (type === 'progress') {
-          setStatus('Loading... ' + Math.round(data * 100) + '%');
-        } else if (type === 'response') {
-          appendMessage(data, 'bot');
-          setStatus('Model ready');
-          busy = false;
-        } else if (type === 'error') {
-          appendMessage('Error: ' + data, 'bot');
-          setStatus('Error occurred');
-          busy = false;
-        }
-      };
-
-      worker.postMessage({ type: 'load', data: { model } });
+    function handleError(err) {
+      appendMessage('Error: ' + err, 'bot');
+      setStatus('Error occurred');
     }
 
+    window.onerror = (msg, src, line, col, err) => {
+      handleError(err?.stack || msg);
+    };
+
+    worker.onmessage = (e) => {
+      const { type, data } = e.data;
+      if (type === 'response') {
+        appendMessage(data, 'bot');
+        isBusy = false;
+      } else if (type === 'status') {
+        setStatus(data);
+      } else if (type === 'error') {
+        handleError(data);
+        isBusy = false;
+      }
+    };
+
     modelSelect.addEventListener('change', () => {
-      initWorker(modelSelect.value);
+      const model = modelSelect.value;
+      isBusy = true;
+      worker.postMessage({ type: 'load', data: { model } });
     });
 
     sendBtn.addEventListener('click', () => {
-      if (busy) return;
+      if (isBusy) return;
       const text = input.value.trim();
       if (!text) return;
       appendMessage(text, 'user');
       input.value = '';
-      setStatus('Generating response...');
-      busy = true;
+      isBusy = true;
       worker.postMessage({ type: 'generate', data: { text } });
     });
 
@@ -171,8 +174,10 @@
       if (e.key === 'Enter') sendBtn.click();
     });
 
-    // Load default model
-    initWorker(modelSelect.value);
+    // Auto-load default model
+    window.addEventListener('load', () => {
+      modelSelect.dispatchEvent(new Event('change'));
+    });
   </script>
 </body>
 </html>
