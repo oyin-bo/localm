@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>On-Device Hello World Chat (Transformers.js)</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f0f12;
+      --panel: #151519;
+      --panel-2: #1b1b21;
+      --text: #eaeaf0;
+      --muted: #a3a3b2;
+      --accent: #4f8cff;
+      --accent-2: #2b6ef6;
+      --ok: #21c17a;
+      --warn: #ffcc00;
+      --err: #ff5c5c;
+      --bubble-user: #2a2a34;
+      --bubble-bot: #1d2233;
+      --border: #2a2a34;
+      --shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    #app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100dvh;
+      max-width: 780px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 12px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      color: var(--muted);
+    }
+    .spacer { flex: 1; }
+    select, button {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font: inherit;
+      outline: none;
+    }
+    select { max-width: 100%; }
+    select:disabled, button:disabled, textarea:disabled { opacity: 0.6; cursor: not-allowed; }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      min-height: 20px;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 0 rgba(79,140,255,0.6);
+      transition: background 0.25s ease;
+    }
+    .dot.ok { background: var(--ok); }
+    .dot.load { background: var(--accent); animation: pulse 1.6s infinite; }
+    .dot.gen { background: var(--warn); animation: pulse 1s infinite; }
+    .dot.err { background: var(--err); }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(79,140,255,0.6); }
+      70% { box-shadow: 0 0 0 10px rgba(79,140,255,0); }
+      100% { box-shadow: 0 0 0 0 rgba(79,140,255,0); }
+    }
+
+    #chat {
+      overflow: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      scroll-behavior: smooth;
+    }
+    .msg {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .msg .avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 12px; font-weight: 700;
+      background: var(--panel-2); color: var(--muted);
+      flex: 0 0 auto;
+      border: 1px solid var(--border);
+    }
+    .msg .bubble {
+      background: var(--bubble-bot);
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      max-width: 90%;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+    .msg.user .bubble {
+      background: var(--bubble-user);
+    }
+    .msg.user .avatar { background: #223; color: #9fb4ff; }
+    .msg.bot .avatar { background: #23252f; color: #9fe3c7; }
+
+    form#composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding: 10px;
+      border-top: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, var(--panel) 35%);
+    }
+    textarea {
+      width: 100%;
+      min-height: 44px;
+      max-height: 160px;
+      resize: vertical;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      outline: none;
+    }
+    button.send {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--accent);
+      color: white;
+      font-weight: 600;
+      transition: background 0.2s ease, transform 0.02s ease;
+    }
+    button.send:active { transform: translateY(1px); }
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 0 12px 8px 12px;
+      text-align: center;
+    }
+    .topbar {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .topbar .row {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+
+    @media (min-width: 720px) {
+      #chat .msg .bubble { max-width: 70%; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="topbar">
+        <div class="row">
+          <h1>On‑Device Chat</h1>
+          <div class="status" id="status"><span class="dot" id="statusDot"></span><span id="statusText">Idle</span></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="row">
+          <label for="model" style="color: var(--muted); font-size: 13px;">Model:</label>
+          <select id="model">
+            <option value="Xenova/distilgpt2">Xenova/distilgpt2</option>
+            <option value="Xenova/phi-3-mini-4k-instruct">Xenova/phi-3-mini-4k-instruct</option>
+            <option value="Xenova/t5-small">Xenova/t5-small</option>
+            <option value="Xenova/gemma-2b-it">Xenova/gemma-2b-it</option>
+            <option value="Xenova/llama-3-8b-instruct">Xenova/llama-3-8b-instruct</option>
+            <option value="Xenova/Mistral-7B-Instruct-v0.2">Xenova/Mistral-7B-Instruct-v0.2</option>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <div id="chat" aria-live="polite" aria-busy="false"></div>
+
+    <div class="hint">Type a message and press Enter (⇧+Enter for newline).</div>
+
+    <form id="composer">
+      <textarea id="input" placeholder="Say hello…" rows="2"></textarea>
+      <button class="send" id="send" type="submit">Send</button>
+    </form>
+  </div>
+
+  <!-- Transformers.js via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0/dist/transformers.min.js"></script>
+  <script>
+    (function () {
+      const elChat = document.getElementById('chat');
+      const elInput = document.getElementById('input');
+      const elSend = document.getElementById('send');
+      const elForm = document.getElementById('composer');
+      const elModel = document.getElementById('model');
+      const elStatusText = document.getElementById('statusText');
+      const elStatusDot = document.getElementById('statusDot');
+
+      const { pipeline, AutoTokenizer } = window.transformers;
+
+      // App state
+      const state = {
+        busy: false,
+        modelId: elModel.value,
+        systemPrompt: 'You are a helpful, concise assistant.',
+        history: [], // { role: 'user'|'assistant', content: string }
+        resources: new Map(), // modelId -> { task, pipe, tokenizer }
+      };
+
+      const TASKS = {
+        'Xenova/t5-small': 'text2text-generation',
+      };
+      function resolveTask(modelId) {
+        return TASKS[modelId] || 'text-generation';
+      }
+
+      function setBusy(busy, phase) {
+        state.busy = busy;
+        elInput.disabled = busy;
+        elSend.disabled = busy;
+        elModel.disabled = busy;
+        document.getElementById('chat').setAttribute('aria-busy', String(busy));
+
+        let text = 'Idle';
+        let cls = '';
+        if (busy && phase === 'loading') { text = 'Loading model…'; cls = 'load'; }
+        else if (busy && phase === 'generating') { text = 'Generating…'; cls = 'gen'; }
+        else if (!busy) { text = 'Ready'; cls = 'ok'; }
+
+        elStatusText.textContent = text;
+        elStatusDot.className = 'dot ' + cls;
+      }
+
+      function scrollToBottom() {
+        requestAnimationFrame(() => {
+          elChat.scrollTop = elChat.scrollHeight;
+        });
+      }
+
+      function addMessage(role, text) {
+        const msg = document.createElement('div');
+        msg.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = role === 'user' ? 'U' : 'AI';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = text;
+
+        msg.appendChild(avatar);
+        msg.appendChild(bubble);
+        elChat.appendChild(msg);
+        scrollToBottom();
+
+        return bubble; // return node for potential updates
+      }
+
+      function showError(err) {
+        elStatusText.textContent = 'Error';
+        elStatusDot.className = 'dot err';
+        addMessage('assistant', '⚠️ ' + (err?.message || String(err)));
+      }
+
+      async function ensureModelLoaded(modelId) {
+        // Cached?
+        if (state.resources.has(modelId)) return state.resources.get(modelId);
+
+        setBusy(true, 'loading');
+        try {
+          const task = resolveTask(modelId);
+
+          // Load pipeline
+          const pipe = await pipeline(task, modelId, {
+            progress_callback: (p) => {
+              // Optional: could surface p.progress or p.status
+              // Keeping status general to avoid noisy UI.
+            },
+          });
+
+          // Load tokenizer (for chat templates when available)
+          const tokenizer = await AutoTokenizer.from_pretrained(modelId).catch(() => null);
+
+          const res = { task, pipe, tokenizer };
+          state.resources.set(modelId, res);
+          return res;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      function buildPromptForModel(tokenizer, task, history, systemPrompt) {
+        // Convert app history to message list
+        const messages = [];
+        if (systemPrompt && systemPrompt.trim()) {
+          messages.push({ role: 'system', content: systemPrompt.trim() });
+        }
+        for (const m of history) {
+          messages.push({ role: m.role, content: m.content });
+        }
+
+        // Try model-native chat template if available
+        if (tokenizer && typeof tokenizer.apply_chat_template === 'function') {
+          try {
+            const prompt = tokenizer.apply_chat_template(messages, {
+              add_generation_prompt: true,
+              tokenize: false,
+            });
+            if (typeof prompt === 'string' && prompt.trim().length) {
+              return prompt;
+            }
+          } catch (_) {
+            // Fall back if no template or error.
+          }
+        }
+
+        // Fallback: simple, generic chat-style formatting
+        const parts = [];
+        if (systemPrompt) parts.push(`System: ${systemPrompt.trim()}`);
+        for (const m of history) {
+          const role = m.role === 'assistant' ? 'Assistant' : 'User';
+          parts.push(`${role}: ${m.content}`);
+        }
+        parts.push('Assistant:'); // generation cue
+        return parts.join('\n');
+      }
+
+      async function generateReply(userText) {
+        const modelId = state.modelId;
+        const res = await ensureModelLoaded(modelId);
+        const { task, pipe, tokenizer } = res;
+
+        // Add user message to history
+        state.history.push({ role: 'user', content: userText });
+
+        // Render user message
+        addMessage('user', userText);
+
+        // Placeholder assistant message (will be replaced when done)
+        const botBubble = addMessage('assistant', '…');
+
+        setBusy(true, 'generating');
+        try {
+          const prompt = buildPromptForModel(tokenizer, task, state.history, state.systemPrompt);
+
+          // Generation options (conservative defaults)
+          const genOpts = {
+            max_new_tokens: 200,
+            temperature: 0.7,
+            top_p: 0.95,
+            do_sample: true,
+            repetition_penalty: 1.1,
+            // For causal LMs, this returns only the new text
+            return_full_text: false,
+          };
+
+          const output = await pipe(prompt, genOpts);
+
+          let text = '';
+          if (Array.isArray(output) && output.length) {
+            // text-generation and text2text-generation both return generated_text
+            text = output[0].generated_text ?? '';
+            // Some tasks may return other keys; keep a graceful fallback
+            if (!text) {
+              text = output[0].summary_text || output[0].translation_text || '';
+            }
+          } else if (typeof output === 'string') {
+            text = output;
+          }
+
+          text = (text || '').toString().trim();
+          if (!text) text = '(no output)';
+
+          // Update UI and history
+          botBubble.textContent = text;
+          state.history.push({ role: 'assistant', content: text });
+          scrollToBottom();
+        } catch (err) {
+          botBubble.textContent = '⚠️ ' + (err?.message || String(err));
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      // UI Handlers
+      elForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = (elInput.value || '').trim();
+        if (!text || state.busy) return;
+        elInput.value = '';
+        await generateReply(text);
+        elInput.focus();
+      });
+
+      elInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          elSend.click();
+        }
+      });
+
+      elModel.addEventListener('change', async () => {
+        if (state.busy) return;
+        const nextId = elModel.value;
+        state.modelId = nextId;
+
+        // Indicate model switch
+        addMessage('assistant', `Switching to model: ${nextId}`);
+        // Warm-load in background; keep UI responsive
+        try {
+          await ensureModelLoaded(nextId);
+          elStatusText.textContent = 'Ready';
+          elStatusDot.className = 'dot ok';
+        } catch (err) {
+          showError(err);
+        }
+      });
+
+      // Boot
+      (async function init() {
+        // Prime UI with a friendly greeting
+        addMessage('assistant', 'Hello! Pick a model above and say hi. All generation happens in your browser.');
+        // Preload default model lazily after a short delay to let the UI paint
+        setTimeout(async () => {
+          try {
+            await ensureModelLoaded(state.modelId);
+            elStatusText.textContent = 'Ready';
+            elStatusDot.className = 'dot ok';
+          } catch (err) {
+            showError(err);
+          }
+        }, 150);
+      })();
+    })();
+  </script>
+</body>
+</html>
