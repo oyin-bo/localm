@@ -5,22 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Local Chat with Transformers.js</title>
 <style>
-  body { margin:0; font-family: system-ui, sans-serif; background:#0f1115; color:#e8eaf0; display:grid; grid-template-rows:auto 1fr auto; height:100vh; }
-  header, footer { background:#171a21; padding:8px 12px; border-bottom:1px solid #2a2f39; }
-  header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  select,button,textarea,input { background:#11141a; color:#e8eaf0; border:1px solid #2a2f39; border-radius:6px; padding:6px 8px; font:inherit; }
-  button { cursor:pointer; }
-  main { overflow:auto; padding:10px; }
-  .chat { display:flex; flex-direction:column; gap:10px; max-width:900px; margin:auto; }
-  .msg { display:flex; }
-  .msg.user { justify-content:flex-end; }
-  .bubble { padding:8px 10px; border-radius:8px; max-width:80%; white-space:pre-wrap; word-break:break-word; }
-  .msg.user .bubble { background:#1b2433; }
-  .msg.assistant .bubble { background:#141923; }
-  .toast { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); background:#11141a; padding:6px 10px; border:1px solid #2a2f39; border-radius:6px; opacity:0; transition:opacity .2s; }
-  .toast.show { opacity:1; }
-  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); display:grid; place-items:center; }
-  .modal { background:#171a21; padding:16px; border-radius:8px; width:min(400px,90%); }
+  body{margin:0;font-family:system-ui,sans-serif;background:#0f1115;color:#e8eaf0;display:grid;grid-template-rows:auto 1fr auto;height:100vh;}
+  header,footer{background:#171a21;padding:8px 12px;border-bottom:1px solid #2a2f39;}
+  header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  select,button,textarea,input{background:#11141a;color:#e8eaf0;border:1px solid #2a2f39;border-radius:6px;padding:6px 8px;font:inherit;}
+  button{cursor:pointer;}
+  main{overflow:auto;padding:10px;}
+  .chat{display:flex;flex-direction:column;gap:10px;max-width:900px;margin:auto;}
+  .msg{display:flex;}
+  .msg.user{justify-content:flex-end;}
+  .bubble{padding:8px 10px;border-radius:8px;max-width:80%;white-space:pre-wrap;word-break:break-word;}
+  .msg.user .bubble{background:#1b2433;}
+  .msg.assistant .bubble{background:#141923;}
+  .toast{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:#11141a;padding:6px 10px;border:1px solid #2a2f39;border-radius:6px;opacity:0;transition:opacity .2s;}
+  .toast.show{opacity:1;}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:grid;place-items:center;}
+  .modal{background:#171a21;padding:16px;border-radius:8px;width:min(400px,90%);}
 </style>
 </head>
 <body>
@@ -88,9 +88,7 @@ function showTokenModal(){
   tokenModal.hidden=false;
   tokenInput.value=localStorage.getItem('hf_token')||'';
 }
-function hideTokenModal(){
-  tokenModal.hidden=true;
-}
+function hideTokenModal(){ tokenModal.hidden=true; }
 function setToken(tok){
   if(tok){ env.HF_TOKEN=tok; localStorage.setItem('hf_token',tok);}
   else{ delete env.HF_TOKEN; localStorage.removeItem('hf_token');}
@@ -103,8 +101,8 @@ async function withAuthRetry(fn){
     return await fn();
   } catch(e){
     if(isUnauthorizedError(e)){
-      showTokenModal();
       return new Promise((resolve,reject)=>{
+        showTokenModal();
         tokenModal.querySelector('#token-save').onclick=()=>{
           const val=tokenInput.value.trim();
           hideTokenModal();
@@ -135,9 +133,17 @@ async function generate(text,bubble){
   const opts={max_new_tokens:128,temperature:0.7,top_p:0.9,repetition_penalty:1.1};
   let streamObj; try{ streamObj=state.pipe(text,{...opts,stream:true}); }catch{}
   if(isAsyncIterable(streamObj)){
-    let full=''; for await (const out of streamObj){
-      const t=(out.token && out.token.text)||out.text||''; full+=t; bubble.textContent=full;
-    } return;
+    let full=''; try{
+      for await (const out of streamObj){
+        const t=(out.token && out.token.text)||out.text||''; full+=t; bubble.textContent=full;
+      }
+      return;
+    }catch(e){
+      if(isUnauthorizedError(e)){
+        await withAuthRetry(()=>generate(text,bubble)); return;
+      }
+      throw e;
+    }
   }
   const out=await withAuthRetry(()=>state.pipe(text,{...opts,stream:false}));
   const textOut=Array.isArray(out)?(out[0]?.generated_text||out[0]?.text): (out.generated_text||out.text)||'';
@@ -145,18 +151,20 @@ async function generate(text,bubble){
 }
 async function onSend(){
   const val=inputEl.value.trim(); if(!val) return;
-  inputEl.value='';
-  addMessage('user',val);
-  const bub=addMessage('assistant','…');
+  inputEl.value=''; addMessage('user',val); const bub=addMessage('assistant','…');
   try { await generate(val,bub); }
   catch(e){ bub.textContent='Error: '+(e.message||e); }
 }
 sendBtn.onclick=onSend;
 inputEl.onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); onSend(); } };
-document.getElementById('set-token').onclick=()=>{ showTokenModal(); tokenModal.querySelector('#token-save').onclick=()=>{
-  const val=tokenInput.value.trim();
-  hideTokenModal(); setToken(val); showToast(val?'Token saved':'Token cleared');
-}; tokenModal.querySelector('#token-cancel').onclick=()=>hideTokenModal(); };
+document.getElementById('set-token').onclick=()=>{
+  showTokenModal();
+  tokenModal.querySelector('#token-save').onclick=()=>{
+    const val=tokenInput.value.trim();
+    hideTokenModal(); setToken(val); showToast(val?'Token saved':'Token cleared');
+  };
+  tokenModal.querySelector('#token-cancel').onclick=()=>hideTokenModal();
+};
 
 addMessage('assistant','Hello! Fully local via Transformers.js. Choose model and send a message.');
 </script>
