@@ -62,6 +62,25 @@ function buildPrompt(model, history) {
   }
 }
 
+// Динамічний імпорт transformers.js
+let transformers = null;
+let transformersLoadError = null;
+
+async function loadTransformers() {
+  if (transformers) return transformers;
+  try {
+    pushMsg("sys", "[debug] Завантаження transformers.js...");
+    transformers = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers/+esm');
+    pushMsg("sys", "[debug] transformers.js успішно завантажено");
+    return transformers;
+  } catch (err) {
+    transformersLoadError = err;
+    pushMsg("sys", `Помилка завантаження transformers.js: ${String(err && err.message || err)}`,
+      err && err.stack ? err.stack : undefined);
+    throw err;
+  }
+}
+
 // --- DEBUG-AWARE ensurePipeline ---
 async function ensurePipeline(model) {
   pushMsg("sys", `[debug] ensurePipeline called for ${model}`);
@@ -71,8 +90,10 @@ async function ensurePipeline(model) {
   }
   const task = taskForModel(model);
   setStatus(`Завантаження моделі (${task})…`, true);
+  let tjs;
   try {
-    if (!transformers || typeof transformers.pipeline !== 'function') {
+    tjs = await loadTransformers();
+    if (!tjs || typeof tjs.pipeline !== 'function') {
       const msg = "Transformers.js (ESM) не завантажено або недоступно. Перевірте імпорт.";
       const err = new Error(msg);
       setStatus("Помилка завантаження моделі", false);
@@ -81,7 +102,7 @@ async function ensurePipeline(model) {
       throw err;
     }
     pushMsg("sys", `[debug] calling transformers.pipeline(${task}, ${model})`);
-    const pipe = await transformers.pipeline(task, model);
+    const pipe = await tjs.pipeline(task, model);
     const entry = { pipe, task };
     cache.set(model, entry);
     setStatus("Готово", false);
