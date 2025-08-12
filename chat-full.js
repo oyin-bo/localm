@@ -206,6 +206,18 @@ window.onerror = function (msg, url, line, col, error) {
   return false;
 };
 
+// Оновлення <title> і DOM header коротким описом змін у коді
+function updateTitleWithChange(description) {
+  const words = description.split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
+  const base = 'Локальний чат';
+  document.title = `${base} — ${words}`;
+  const h1 = document.querySelector('header h1');
+  if (h1) h1.textContent = `${base} — ${words}`;
+}
+
+// Викликати після змін у коді:
+updateTitleWithChange('Динамічний import transformers debug');
+
 // DEBUG: перевірка виконання модуля
 try {
   const el = document.querySelector('#messages');
