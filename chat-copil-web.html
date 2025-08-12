@@ -1,300 +1,250 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>On-Device Hello World Chat (Transformers.js)</title>
-  <!-- styles exactly as before -->
-  … [all CSS from your last copy here] …
+  <title>Minimal On-Device Chat</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #111;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header,
+    form {
+      padding: 10px;
+      background: #222;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .msg {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #444;
+      color: #ccc;
+      font-size: 12px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .bubble {
+      background: #333;
+      padding: 8px 10px;
+      border-radius: 8px;
+      max-width: 80%;
+      white-space: pre-wrap;
+    }
+
+    .user .bubble {
+      background: #2a2a2a;
+    }
+
+    .error .bubble {
+      background: #4a1a1a;
+      color: #f88;
+    }
+
+    textarea {
+      flex: 1;
+      padding: 8px;
+      border-radius: 6px;
+      border: none;
+      background: #1a1a1a;
+      color: #eee;
+    }
+
+    button,
+    select {
+      padding: 6px 10px;
+      background: #444;
+      color: #eee;
+      border: none;
+      border-radius: 6px;
+    }
+  </style>
 </head>
+
 <body>
-  <div id="app">
-    <!-- header, status dot, model selector -->
-    <!-- chat window -->
-    <!-- hint and composer form -->
-  </div>
+  <header>
+    <strong>Model:</strong>
+    <select id="model">
+      <option value="Xenova/distilgpt2">distilgpt2</option>
+      <option value="Xenova/phi-3-mini-4k-instruct">phi-3-mini</option>
+      <option value="Xenova/t5-small">t5-small</option>
+    </select>
+    <span id="status">Idle</span>
+  </header>
+
+  <div id="chat" aria-live="polite" aria-busy="false"></div>
+
+  <form id="composer">
+    <textarea id="input" placeholder="Say something…" rows="2"></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
 
   <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0/dist/transformers.min.js"></script>
-<script>
-  (function () {
-    const elChat = document.getElementById('chat');
-    const elInput = document.getElementById('input');
-    const elSend = document.getElementById('send');
-    const elForm = document.getElementById('composer');
-    const elModel = document.getElementById('model');
-    const elStatusText = document.getElementById('statusText');
-    const elStatusDot = document.getElementById('statusDot');
+  <script>
+    (function () {
+      const elChat = document.getElementById('chat');
+      const elInput = document.getElementById('input');
+      const elSend = document.getElementById('send');
+      const elForm = document.getElementById('composer');
+      const elModel = document.getElementById('model');
+      const elStatus = document.getElementById('status');
 
-    const { pipeline, AutoTokenizer } = window.transformers || {};
+      const { pipeline, AutoTokenizer } = window.transformers || {};
 
-    // Guard: make it obvious if CDN failed
-    if (!pipeline || !AutoTokenizer) {
-      hardPushError(new Error('Transformers library failed to load. Check network/CSP.'), 'Boot failure');
-      // Keep going so UI still works and surfaces errors
-    }
+      const state = {
+        busy: false,
+        modelId: elModel.value,
+        systemPrompt: 'You are a helpful assistant.',
+        history: [],
+        resources: new Map(),
+      };
 
-    const state = {
-      busy: false,
-      modelId: elModel.value,
-      systemPrompt: 'You are a helpful, concise assistant.',
-      history: [],
-      resources: new Map(),
-    };
+      const setBusy = (busy, label = '') => {
+        state.busy = busy;
+        [elInput, elSend, elModel].forEach(el => el.disabled = busy);
+        elChat.setAttribute('aria-busy', String(busy));
+        elStatus.textContent = busy ? label : 'Idle';
+      };
 
-    const TASKS = { 'Xenova/t5-small': 'text2text-generation' };
-    const resolveTask = (id) => TASKS[id] || 'text-generation';
+      const addMessage = (role, text, variant = '') => {
+        const msg = document.createElement('div');
+        msg.className = `msg ${role} ${variant}`;
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = role === 'user' ? 'U' : (variant === 'error' ? '!' : 'AI');
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = text;
+        msg.append(avatar, bubble);
+        elChat.appendChild(msg);
+        elChat.scrollTop = elChat.scrollHeight;
+        return bubble;
+      };
 
-    function setBusy(busy, phase) {
-      state.busy = busy;
-      [elInput, elSend, elModel].forEach(el => el && (el.disabled = busy));
-      if (elChat) elChat.setAttribute('aria-busy', String(busy));
-      let text = 'Idle', cls = '';
-      if (busy && phase === 'loading') { text = 'Loading model…'; cls = 'load'; }
-      else if (busy && phase === 'generating') { text = 'Generating…'; cls = 'gen'; }
-      else if (!busy) { text = 'Ready'; cls = 'ok'; }
-      elStatusText.textContent = text;
-      elStatusDot.className = 'dot ' + cls;
-    }
-
-    function scrollToBottom() {
-      if (!elChat) return;
-      requestAnimationFrame(() => { elChat.scrollTop = elChat.scrollHeight; });
-    }
-
-    function addMessage(role, text, variant = '') {
-      if (!elChat) throw new Error('Chat container not found');
-      const msg = document.createElement('div');
-      const classes = ['msg', role === 'user' ? 'user' : 'bot'];
-      if (variant) classes.push(variant);
-      msg.className = classes.join(' ');
-
-      const avatar = document.createElement('div');
-      avatar.className = 'avatar';
-      avatar.textContent = role === 'user' ? 'U' : (variant === 'error' ? '!' : 'AI');
-
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble';
-      bubble.textContent = text;
-
-      msg.appendChild(avatar);
-      msg.appendChild(bubble);
-      elChat.appendChild(msg);
-      scrollToBottom();
-      return bubble;
-    }
-
-    function normalizeError(err) {
-      try {
-        if (err instanceof Error) return { name: err.name || 'Error', message: err.message || String(err), stack: err.stack || '' };
-        if (typeof err === 'string') return { name: 'Error', message: err, stack: '' };
-        if (err && typeof err === 'object') {
-          const msg = err.message || err.reason || JSON.stringify(err);
-          return { name: err.name || 'Error', message: String(msg), stack: err.stack || '' };
-        }
-        return { name: 'Error', message: String(err), stack: '' };
-      } catch {
-        return { name: 'Error', message: 'Unknown error', stack: '' };
-      }
-    }
-
-    function formatErrorText(err, context) {
-      const { name, message, stack } = normalizeError(err);
-      let text = `⚠️ ${context ? context + ': ' : ''}${name}: ${message}`;
-      if (stack) {
-        const first = String(stack).split('\n')[1] || '';
-        if (first.trim()) text += `\n${first.trim()}`;
-      }
-      return text;
-    }
-
-    // Fallback that never depends on chat internals
-    function hardPushError(err, context = 'Error') {
-      const msg = formatErrorText(err, context);
-      try {
+      const pushError = (err, context = 'Error') => {
+        const msg = `${context}: ${err?.message || err}`;
+        console.error(context, err);
         addMessage('assistant', msg, 'error');
-      } catch (_) {
-        const div = document.createElement('pre');
-        div.style.cssText = 'white-space:pre-wrap;color:#ff9aa5;background:#2a1416;padding:10px;border-radius:8px;margin:10px';
-        div.textContent = msg;
-        document.body.appendChild(div);
-      }
-      console.error(context, err);
-      elStatusText.textContent = 'Error';
-      elStatusDot.className = 'dot err';
-      state.history.push({ role: 'assistant', content: msg });
-    }
+        state.history.push({ role: 'assistant', content: msg });
+        elStatus.textContent = 'Error';
+      };
 
-    function pushError(err, context = 'Error') {
-      // Use microtask to avoid interfering with current handler stack
-      queueMicrotask(() => hardPushError(err, context));
-    }
-
-    async function ensureModelLoaded(modelId) {
-      if (state.resources.has(modelId)) return state.resources.get(modelId);
-      setBusy(true, 'loading');
-      try {
-        const task = resolveTask(modelId);
-        const pipe = await pipeline(task, modelId, { progress_callback: () => { } });
+      const ensureModelLoaded = async (modelId) => {
+        if (state.resources.has(modelId)) return state.resources.get(modelId);
+        setBusy(true, 'Loading…');
+        const task = modelId.includes('t5') ? 'text2text-generation' : 'text-generation';
+        const pipe = await pipeline(task, modelId);
         const tokenizer = await AutoTokenizer.from_pretrained(modelId).catch(() => null);
         const res = { task, pipe, tokenizer };
         state.resources.set(modelId, res);
+        setBusy(false);
         return res;
-      } finally {
-        setBusy(false);
-      }
-    }
+      };
 
-    function buildPromptForModel(tokenizer, task, history, systemPrompt) {
-      const messages = [];
-      if (systemPrompt?.trim()) messages.push({ role: 'system', content: systemPrompt.trim() });
-      for (const m of history) messages.push({ role: m.role, content: m.content });
+      const buildPrompt = (tokenizer, task, history, systemPrompt) => {
+        const messages = systemPrompt ? [{ role: 'system', content: systemPrompt }] : [];
+        messages.push(...history);
+        if (tokenizer?.apply_chat_template) {
+          try {
+            return tokenizer.apply_chat_template(messages, { add_generation_prompt: true, tokenize: false });
+          } catch {}
+        }
+        return messages.map(m => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+      };
 
-      if (tokenizer?.apply_chat_template) {
+      const generateReply = async (text) => {
+        addMessage('user', text);
+        state.history.push({ role: 'user', content: text });
+        const botBubble = addMessage('assistant', '…');
+
         try {
-          const prompt = tokenizer.apply_chat_template(messages, { add_generation_prompt: true, tokenize: false });
-          if (typeof prompt === 'string' && prompt.trim()) return prompt;
-        } catch (e) {
-          console.warn('Chat template failed; falling back:', e);
-        }
-      }
-      const parts = [];
-      if (systemPrompt) parts.push(`System: ${systemPrompt.trim()}`);
-      for (const m of history) parts.push(`${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`);
-      parts.push('Assistant:');
-      return parts.join('\n');
-    }
-
-    async function generateReply(userText) {
-      // 1) Add user bubble first; only clear input after it renders
-      let botBubble;
-      try {
-        addMessage('user', userText);
-        state.history.push({ role: 'user', content: userText });
-        botBubble = addMessage('assistant', '…');
-      } catch (err) {
-        return hardPushError(err, 'Failed to render message');
-      }
-
-      // 2) Load model
-      try {
-        await ensureModelLoaded(state.modelId);
-      } catch (err) {
-        const text = formatErrorText(err, 'Model loading failed');
-        botBubble.textContent = text;
-        state.history.push({ role: 'assistant', content: text });
-        return;
-      }
-
-      // 3) Generate
-      setBusy(true, 'generating');
-      try {
-        const { task, pipe, tokenizer } = state.resources.get(state.modelId);
-        const prompt = buildPromptForModel(tokenizer, task, state.history, state.systemPrompt);
-        const genOpts = {
-          max_new_tokens: 200,
-          temperature: 0.7,
-          top_p: 0.95,
-          do_sample: true,
-          repetition_penalty: 1.1,
-          return_full_text: false,
-        };
-        const output = await pipe(prompt, genOpts);
-        let text = '';
-        if (Array.isArray(output) && output.length) {
-          text = output[0].generated_text ?? output[0].summary_text ?? output[0].translation_text ?? '';
-        } else if (typeof output === 'string') {
-          text = output;
-        }
-        text = (text || '').toString().trim();
-        if (!text) text = '(no output)';
-        botBubble.textContent = text;
-        state.history.push({ role: 'assistant', content: text });
-      } catch (err) {
-        const text = formatErrorText(err, 'Generation failed');
-        botBubble.textContent = text;
-        state.history.push({ role: 'assistant', content: text });
-        elStatusText.textContent = 'Error';
-        elStatusDot.className = 'dot err';
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    // Crash-safe wrapper for event handlers
-    const safe = (fn, label) => function (...args) {
-      try { return fn.apply(this, args); } catch (e) { hardPushError(e, label || 'UI handler crash'); }
-    };
-
-    // Form submit
-    elForm.addEventListener('submit', safe(async (e) => {
-      e.preventDefault();
-      const text = (elInput.value || '').trim();
-      if (!text || state.busy) return;
-      // Clear only after we’ve successfully queued the work
-      elInput.value = '';
-      await generateReply(text);
-      elInput.focus();
-    }, 'Submit handler'));
-
-    // Enter to submit (more reliable than clicking the button)
-    elInput.addEventListener('keydown', safe((e) => {
-      if (e.isComposing) return; // IME input
-      if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        if (typeof elForm.requestSubmit === 'function') {
-          elForm.requestSubmit();
-        } else {
-          // Fallback
-          const evt = new Event('submit', { bubbles: true, cancelable: true });
-          elForm.dispatchEvent(evt);
-        }
-      }
-    }, 'Enter handler'));
-
-    // Model change
-    elModel.addEventListener('change', safe(async () => {
-      if (state.busy) return;
-      const nextId = elModel.value;
-      state.modelId = nextId;
-      addMessage('assistant', `Switching to model: ${nextId}`);
-      try {
-        await ensureModelLoaded(nextId);
-        elStatusText.textContent = 'Ready';
-        elStatusDot.className = 'dot ok';
-      } catch (err) {
-        pushError(err, 'Model switch failed');
-      }
-    }, 'Model change'));
-
-    // Global error surfaces
-    window.addEventListener('error', (event) => {
-      const { message, filename, lineno, colno, error } = event;
-      const meta = filename ? ` @ ${filename}:${lineno}:${colno}` : '';
-      pushError(error || new Error((message || 'Uncaught error') + meta), 'Uncaught error');
-    });
-    window.addEventListener('unhandledrejection', (event) => {
-      pushError(event.reason, 'Unhandled promise rejection');
-    });
-
-    // Boot
-    (function init() {
-      try {
-        addMessage('assistant', 'Hello! Pick a model above and say hi. All generation happens in your browser.');
-      } catch (e) {
-        hardPushError(e, 'Initial render failed');
-      }
-      setTimeout(async () => {
-        try {
-          if (pipeline && AutoTokenizer) {
-            await ensureModelLoaded(state.modelId);
-            elStatusText.textContent = 'Ready';
-            elStatusDot.className = 'dot ok';
-          }
+          const { task, pipe, tokenizer } = await ensureModelLoaded(state.modelId);
+          setBusy(true, 'Generating…');
+          const prompt = buildPrompt(tokenizer, task, state.history, state.systemPrompt);
+          const output = await pipe(prompt, {
+            max_new_tokens: 200,
+            temperature: 0.7,
+            top_p: 0.95,
+            do_sample: true,
+            repetition_penalty: 1.1,
+            return_full_text: false,
+          });
+          const textOut = output?.[0]?.generated_text || output?.[0]?.summary_text || output?.[0]?.translation_text || '(no output)';
+          botBubble.textContent = textOut.trim();
+          state.history.push({ role: 'assistant', content: textOut.trim() });
         } catch (err) {
-          pushError(err, 'Initial model preload failed');
+          pushError(err, 'Generation failed');
+          botBubble.textContent = '(error)';
+        } finally {
+          setBusy(false);
         }
-      }, 150);
+      };
+
+      elForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = elInput.value.trim();
+        if (!text || state.busy) return;
+        elInput.value = '';
+        try {
+          await generateReply(text);
+        } catch (err) {
+          pushError(err, 'Submit error');
+        }
+      });
+
+      elInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          elForm.requestSubmit();
+        }
+      });
+
+      elModel.addEventListener('change', async () => {
+        if (state.busy) return;
+        state.modelId = elModel.value;
+        addMessage('assistant', `Switched to model: ${state.modelId}`);
+        try {
+          await ensureModelLoaded(state.modelId);
+        } catch (err) {
+          pushError(err, 'Model load failed');
+        }
+      });
+
+      window.addEventListener('error', e => pushError(e.error || e.message, 'Uncaught error'));
+      window.addEventListener('unhandledrejection', e => pushError(e.reason, 'Unhandled rejection'));
+
+      addMessage('assistant', 'Hello! Choose a model and say something.');
+      setTimeout(() => ensureModelLoaded(state.modelId).catch(err => pushError(err, 'Initial load')), 100);
     })();
-  })();
-</script>
-</body></html>
+  </script>
+</body>
+
+</html>

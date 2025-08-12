@@ -1,4 +1,3 @@
-
 import * as transformers from 'https://cdn.jsdelivr.net/npm/@xenova/transformers/+esm';
 
 const $ = (s) => document.querySelector(s);
@@ -63,9 +62,13 @@ function buildPrompt(model, history) {
   }
 }
 
-// Завантаження/кешування пайплайну
+// --- DEBUG-AWARE ensurePipeline ---
 async function ensurePipeline(model) {
-  if (cache.has(model)) return cache.get(model);
+  pushMsg("sys", `[debug] ensurePipeline called for ${model}`);
+  if (cache.has(model)) {
+    pushMsg("sys", `[debug] ensurePipeline cache hit for ${model}`);
+    return cache.get(model);
+  }
   const task = taskForModel(model);
   setStatus(`Завантаження моделі (${task})…`, true);
   try {
@@ -77,6 +80,7 @@ async function ensurePipeline(model) {
         err.stack);
       throw err;
     }
+    pushMsg("sys", `[debug] calling transformers.pipeline(${task}, ${model})`);
     const pipe = await transformers.pipeline(task, model);
     const entry = { pipe, task };
     cache.set(model, entry);
@@ -90,9 +94,21 @@ async function ensurePipeline(model) {
   }
 }
 
+// --- DEBUG-AWARE generateAndReply ---
 async function generateAndReply() {
+  pushMsg("sys", "[debug] generateAndReply called");
   const model = currentModel;
-  const { pipe, task } = await ensurePipeline(model);
+  let pipe, task;
+  try {
+    pushMsg("sys", `[debug] ensurePipeline for ${model}`);
+    const pipeObj = await ensurePipeline(model);
+    pipe = pipeObj.pipe;
+    task = pipeObj.task;
+    pushMsg("sys", `[debug] ensurePipeline ok: ${model}, task=${task}`);
+  } catch (err) {
+    pushMsg("sys", `[debug] ensurePipeline failed: ${String(err && err.message || err)}`);
+    throw err;
+  }
   const prompt = buildPrompt(model, chatHistory);
 
   setStatus("Генерація відповіді…", true);
@@ -103,7 +119,9 @@ async function generateAndReply() {
       top_p: 0.9,
       do_sample: true
     };
+    pushMsg("sys", "[debug] calling pipe");
     const out = await pipe(prompt, genOpts);
+    pushMsg("sys", "[debug] pipe returned");
 
     let fullText = "";
     if (Array.isArray(out) && out.length) {
@@ -127,16 +145,13 @@ async function generateAndReply() {
   } catch (err) {
     pushMsg("sys", `Помилка генерації: ${String(err && err.message || err)}`,
       err && err.stack ? err.stack : undefined);
+    throw err;
   } finally {
     setStatus("Готово", false);
   }
 }
 
-modelSel.addEventListener("change", async () => {
-  currentModel = modelSel.value;
-  pushMsg("sys", `Обрано модель: ${currentModel}`);
-});
-
+// --- DEBUG-AWARE form submit ---
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (busy) return;
@@ -147,7 +162,13 @@ form.addEventListener("submit", async (e) => {
   pushMsg("me", text);
 
   promptEl.value = "";
-  await generateAndReply();
+  try {
+    pushMsg("sys", "[debug] form submit: calling generateAndReply");
+    await generateAndReply();
+  } catch (err) {
+    pushMsg("sys", `global unhandled in submit: ${String(err && err.message || err)}`,
+      err && err.stack ? err.stack : undefined);
+  }
   promptEl.focus();
 });
 
