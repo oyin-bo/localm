@@ -1,731 +1,502 @@
-
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <title>Hello World – On-Device Chat (Transformers.js)</title>
+  <title>Local Chat with Transformers.js</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
       color-scheme: light dark;
-      --bg: #0b0c10;
-      --panel: #111318;
-      --panel-2: #151922;
-      --text: #e9eef3;
-      --muted: #9aa6b2;
-      --accent: #4f7cff;
-      --accent-2: #3a5fe0;
-      --danger: #ff4d67;
-      --ok: #3cc07a;
-      --shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-      --radius: 14px;
-      --radius-sm: 10px;
-      --radius-lg: 22px;
-      --gap: 12px;
-      --gap-lg: 18px;
-      --gap-xl: 24px;
-      --font: system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --bg: #0f1115;
+      --panel: #171a21;
+      --muted: #8a8f98;
+      --text: #e8eaf0;
+      --accent: #6ea8fe;
+      --accent-2: #51d19a;
+      --error: #ff6b6b;
+      --border: #2a2f39;
     }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html,
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
     body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: linear-gradient(180deg, #0b0c10, #0d1018 60%, #0b0c10);
+      font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg);
       color: var(--text);
-      font-family: var(--font);
-    }
-
-    .app {
       display: grid;
       grid-template-rows: auto 1fr auto;
-      height: 100dvh;
-      max-width: 900px;
-      margin: 0 auto;
-    }
-
-    header {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      display: flex;
-      gap: var(--gap);
-      padding: 12px;
-      align-items: center;
-      background: transparent;
-      backdrop-filter: saturate(140%) blur(10px);
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
       gap: 10px;
+    }
+    header, footer {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
       padding: 10px 12px;
-      border-radius: var(--radius);
-      background: linear-gradient(180deg, #121623, #0e1220);
-      box-shadow: var(--shadow);
-      font-weight: 700;
-      letter-spacing: .2px;
     }
-
-    .brand .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 30% 30%, #8ab4ff, #4f7cff);
-      box-shadow: 0 0 12px rgba(79, 124, 255, .75), 0 0 28px rgba(79, 124, 255, .45);
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 10px;
+      align-items: center;
     }
-
     .controls {
       display: flex;
-      gap: var(--gap);
-      margin-left: auto;
+      gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
     }
-
-    select,
-    button,
-    .status {
-      border: 1px solid #1f2533;
-      background: linear-gradient(180deg, #101523, #0f1320);
+    select, button, input[type="text"] {
+      background: #11141a;
       color: var(--text);
-      border-radius: var(--radius);
-      padding: 10px 12px;
-      font: inherit;
-      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      border-radius: 8px;
+      outline: none;
     }
-
-    select {
-      padding-right: 36px;
-    }
-
     button {
       cursor: pointer;
-      border: 1px solid #2a375a;
+      background: #12151c;
+      transition: background 0.15s ease;
     }
-
-    button.primary {
-      background: linear-gradient(180deg, var(--accent), var(--accent-2));
-      border: none;
-      color: white;
-      font-weight: 600;
-    }
-
-    button.ghost {
-      background: transparent;
-      border: 1px dashed #2a375a;
-      opacity: .9;
-    }
-
-    button:disabled {
-      opacity: .5;
-      cursor: not-allowed;
-      filter: grayscale(.2);
-    }
-
-    .status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted);
-      padding: 10px 12px;
-      border-radius: var(--radius);
-      border-style: dashed;
-      white-space: nowrap;
-      max-width: 58vw;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .status .blink {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--muted);
-      animation: pulse 1.2s infinite ease-in-out;
-      box-shadow: 0 0 0 0 rgba(79, 124, 255, 0.6);
-    }
-
-    .status.loading .blink {
-      background: var(--accent);
-      box-shadow: 0 0 0 0 rgba(79, 124, 255, 0.6);
-      animation: pulse 1.2s infinite ease-in-out;
-    }
-
-    .status.generating .blink {
-      background: var(--ok);
-      animation: pulse-fast .8s infinite ease-in-out;
-      box-shadow: 0 0 0 0 rgba(60, 192, 122, 0.6);
-    }
-
-    @keyframes pulse {
-      0% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(79, 124, 255, 0.5);
-      }
-
-      70% {
-        transform: scale(1.12);
-        box-shadow: 0 0 0 10px rgba(79, 124, 255, 0);
-      }
-
-      100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(79, 124, 255, 0);
-      }
-    }
-
-    @keyframes pulse-fast {
-      0% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(60, 192, 122, 0.5);
-      }
-
-      70% {
-        transform: scale(1.12);
-        box-shadow: 0 0 0 10px rgba(60, 192, 122, 0);
-      }
-
-      100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(60, 192, 122, 0);
-      }
-    }
-
+    button:hover { background: #161b25; }
+    .btn-accent { border-color: #2b3850; }
+    .btn-accent:hover { background: #162134; }
+    .status { color: var(--muted); font-size: 12px; }
     main {
-      padding: 10px 12px 16px;
+      padding: 10px 12px;
       overflow: auto;
+    }
+    .chat {
+      max-width: 900px;
+      margin: 0 auto;
       display: flex;
       flex-direction: column;
-      gap: var(--gap);
-      scroll-behavior: smooth;
+      gap: 10px;
     }
-
     .msg {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 8px 10px;
-      align-items: start;
-      max-width: 100%;
-      word-wrap: break-word;
-      overflow-wrap: anywhere;
+      display: flex;
+      gap: 10px;
     }
-
-    .msg .avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      font-size: 14px;
-      font-weight: 700;
-      color: #0d1020;
-      background: #b8c8ff;
-    }
-
-    .msg.assistant .avatar {
-      background: #9be7c4;
-    }
-
+    .msg.user { justify-content: flex-end; }
+    .msg.assistant { justify-content: flex-start; }
     .bubble {
-      padding: 12px 14px;
-      border-radius: var(--radius-lg);
-      line-height: 1.4;
-      box-shadow: var(--shadow);
-      background: linear-gradient(180deg, #111523, #0e1322);
-      border: 1px solid #1d2433;
+      max-width: min(90%, 720px);
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
       white-space: pre-wrap;
+      word-break: break-word;
     }
-
-    .msg.user .bubble {
-      background: linear-gradient(180deg, #152037, #10192f);
-      border: 1px solid #243355;
-    }
-
-    .msg.error .bubble {
-      background: linear-gradient(180deg, #2a0f14, #220a0f);
-      border: 1px solid #5d1b26;
-      color: #ffd7de;
-    }
-
-    .meta {
-      grid-column: 2 / -1;
-      color: var(--muted);
-      font-size: 12px;
-      margin-top: -4px;
-    }
-
+    .msg.user .bubble { background: #1b2433; }
+    .msg.assistant .bubble { background: #141923; }
     footer {
+      border-top: 1px solid var(--border);
+      border-bottom: none;
+    }
+    .composer {
+      max-width: 900px;
+      margin: 0 auto;
       display: grid;
       grid-template-columns: 1fr auto;
-      gap: var(--gap);
-      padding: 10px 12px 14px;
-      background: linear-gradient(180deg, #0b0f1a, #0b0f1a);
-      border-top: 1px solid #161c2a;
+      gap: 8px;
+      align-items: end;
     }
-
     textarea {
-      resize: none;
       width: 100%;
       min-height: 52px;
-      max-height: 36dvh;
-      padding: 12px 14px;
-      border-radius: var(--radius-lg);
-      border: 1px solid #1f2738;
-      outline: none;
-      box-shadow: var(--shadow);
-      background: linear-gradient(180deg, #101426, #0e1221);
+      max-height: 180px;
+      resize: vertical;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #11141a;
       color: var(--text);
-      caret-color: var(--accent);
+      outline: none;
     }
-
-    .actions {
-      display: flex;
-      gap: var(--gap);
-      align-items: stretch;
-    }
-
-    .hint {
+    .toast {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #11141a;
+      color: var(--text);
+      border: 1px solid var(--border);
       padding: 8px 12px;
-      color: var(--muted);
-      font-size: 12px;
-      text-align: center;
+      border-radius: 8px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
     }
-
-    @media (min-width: 720px) {
-      header {
-        padding: 16px;
-      }
-
-      main {
-        padding: 12px 16px 18px;
-      }
-
-      footer {
-        padding: 12px 16px 18px;
-      }
-
-      .status {
-        max-width: 420px;
-      }
+    .toast.show { opacity: 1; }
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.5);
+      display: grid;
+      place-items: center;
+      padding: 20px;
     }
+    .modal {
+      width: min(560px, 92vw);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    .modal h3 { margin: 0 0 8px 0; font-size: 16px; }
+    .modal p { margin: 0 0 10px 0; color: var(--muted); }
+    .modal .row { display: flex; gap: 8px; margin-top: 8px; }
+    .modal input[type="password"], .modal input[type="text"] {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #11141a;
+      color: var(--text);
+      outline: none;
+    }
+    .modal .actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 12px;
+    }
+    .small { font-size: 12px; color: var(--muted); }
+    .hint { color: var(--accent-2); }
+    .error { color: var(--error); }
   </style>
 </head>
-
 <body>
-  <div class="app">
-    <header>
-      <div class="brand" title="On-device chat">
-        <div class="dot" aria-hidden="true"></div>
-        <div>Hello World</div>
+  <header>
+    <div class="controls">
+      <label for="model" class="small">Model</label>
+      <select id="model" title="Choose a model">
+        <option value="Xenova/distilGPT2">Xenova/distilGPT2 (tiny, demo)</option>
+        <option value="Xenova/TinyLlama-1.1B-Chat-v1.0">Xenova/TinyLlama-1.1B-Chat-v1.0</option>
+        <option value="Xenova/Mistral-7B-Instruct-v0.2">Xenova/Mistral-7B-Instruct-v0.2 (may require HF token)</option>
+      </select>
+      <button id="set-token" class="btn-accent">Set token</button>
+      <span id="status" class="status">Idle</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="chat" class="chat"></div>
+  </main>
+
+  <footer>
+    <div class="composer">
+      <textarea id="input" placeholder="Say hi…" spellcheck="true"></textarea>
+      <button id="send">Send</button>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Token Modal -->
+  <div id="token-backdrop" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="token-title">
+      <h3 id="token-title">Hugging Face access token</h3>
+      <p class="message">Enter your Hugging Face access token:</p>
+      <div class="row">
+        <input id="token-input" type="password" placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+        <button id="token-visibility" title="Show/Hide">👁️</button>
       </div>
-
-      <div class="controls" style="flex-wrap: wrap">
-        <label for="model" class="visually-hidden" style="position:absolute;left:-9999px">Model</label>
-        <select id="model" title="Select a model">
-          <option value="Xenova/distilgpt2">Xenova/distilgpt2</option>
-          <option value="Xenova/phi-3-mini-4k-instruct">Xenova/phi-3-mini-4k-instruct</option>
-          <option value="Xenova/t5-small">Xenova/t5-small</option>
-          <option value="Xenova/gemma-2b-it">Xenova/gemma-2b-it</option>
-          <option value="Xenova/llama-3-8b-instruct">Xenova/llama-3-8b-instruct</option>
-          <option value="Xenova/Mistral-7B-Instruct-v0.2">Xenova/Mistral-7B-Instruct-v0.2</option>
-        </select>
-
-        <div id="status" class="status" role="status" aria-live="polite">
-          <div class="blink" aria-hidden="true"></div>
-          <span class="label">Initializing…</span>
-        </div>
-      </div>
-    </header>
-
-    <main id="chat" aria-live="polite" aria-busy="false">
-      <div class="msg assistant">
-        <div class="avatar">AI</div>
-        <div class="bubble">Hello! I run fully in your browser using Transformers.js. Pick a model above and say hi.
-        </div>
-        <div class="meta">On-device, no server calls.</div>
-      </div>
-    </main>
-
-    <footer>
-      <textarea id="input" placeholder="Type a message… (Shift+Enter for newline)"></textarea>
+      <p class="small">Your token will be cached locally in your browser (localStorage) and sent only to Hugging Face to authorize model file downloads.</p>
       <div class="actions">
-        <button id="send" class="primary">Send</button>
-        <button id="stop" class="ghost" disabled>Stop</button>
+        <button class="cancel">Cancel</button>
+        <button class="save btn-accent">Save token</button>
       </div>
-      <div class="hint" style="grid-column: 1 / -1">
-        Tip: Switch models anytime. The first run will download weights into your browser cache.
-      </div>
-    </footer>
+    </div>
   </div>
 
-  <script type="module">
-    // Wrap everything in an async IIFE and catch top-level errors.
-    (async () => {
-      'use strict';
+  <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers"></script>
+  <script>
+    (function () {
+      const { pipeline, env } = window.transformers;
+
+      // Restore token from localStorage
+      const savedToken = localStorage.getItem('hf_token');
+      if (savedToken) {
+        env.HF_TOKEN = savedToken;
+      }
+
+      // Basic state
+      const state = {
+        pipe: null,
+        modelId: null,
+        task: 'text-generation',
+        messages: [],
+        loading: false,
+      };
 
       // UI elements
       const chatEl = document.getElementById('chat');
       const inputEl = document.getElementById('input');
       const sendBtn = document.getElementById('send');
-      const stopBtn = document.getElementById('stop');
-      const modelSelect = document.getElementById('model');
+      const modelSel = document.getElementById('model');
       const statusEl = document.getElementById('status');
+      const toastEl = document.getElementById('toast');
 
-      // App state
-      const state = {
-        busy: false,
-        modelId: modelSelect.value,
-        task: null,
-        pipe: null,
-        messages: [{ role: 'system', content: 'You are a concise, friendly assistant.' }],
-        abortController: null,
-      };
+      // Modal elements
+      const tokenBackdrop = document.getElementById('token-backdrop');
+      const tokenMsgEl = tokenBackdrop.querySelector('.message');
+      const tokenInputEl = document.getElementById('token-input');
+      const tokenSaveBtn = tokenBackdrop.querySelector('.save');
+      const tokenCancelBtn = tokenBackdrop.querySelector('.cancel');
+      const tokenVisibilityBtn = document.getElementById('token-visibility');
 
-      // Helpers: UI status
-      function setStatus(mode, text) {
-        try {
-          statusEl.classList.remove('loading', 'generating');
-          if (mode) statusEl.classList.add(mode);
-          statusEl.querySelector('.label').textContent = text;
-        } catch (err) {
-          reportError(err);
+      // Helpers
+      function showStatus(text) {
+        statusEl.textContent = text || '';
+      }
+      function showTransientToast(text) {
+        if (!text) return;
+        toastEl.textContent = text;
+        toastEl.classList.add('show');
+        setTimeout(() => toastEl.classList.remove('show'), 1600);
+      }
+      function isUnauthorizedError(err) {
+        const msg = (err && (err.message || String(err))) || '';
+        return msg.includes('Unauthorized access to file');
+      }
+      function isAsyncIterable(obj) {
+        return obj && typeof obj[Symbol.asyncIterator] === 'function';
+      }
+      function setToken(token) {
+        const clean = (token || '').trim();
+        if (clean) {
+          env.HF_TOKEN = clean;
+          localStorage.setItem('hf_token', clean);
+        } else {
+          env.HF_TOKEN = undefined;
+          localStorage.removeItem('hf_token');
         }
       }
 
-      function setBusy(isBusy) {
-        try {
-          state.busy = isBusy;
-          chatEl.setAttribute('aria-busy', String(isBusy));
-          sendBtn.disabled = isBusy;
-          modelSelect.disabled = isBusy;
-          stopBtn.disabled = !isBusy;
-          inputEl.readOnly = isBusy;
-        } catch (err) {
-          reportError(err);
-        }
+      function addMessage(role, content) {
+        const row = document.createElement('div');
+        row.className = 'msg ' + role;
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = content;
+        row.appendChild(bubble);
+        chatEl.appendChild(row);
+        chatEl.scrollTop = chatEl.scrollHeight;
       }
 
-      // Helpers: chat UI
-      function addMessage(role, text, opts = {}) {
-        try {
-          const wrapper = document.createElement('div');
-          wrapper.className = `msg ${role}${opts.error ? ' error' : ''}`;
-          const avatar = document.createElement('div');
-          avatar.className = 'avatar';
-          avatar.textContent = role === 'user' ? 'You' : role === 'assistant' ? 'AI' : 'S';
-          const bubble = document.createElement('div');
-          bubble.className = 'bubble';
-          bubble.textContent = text ?? '';
-          const meta = document.createElement('div');
-          meta.className = 'meta';
-          meta.textContent = opts.meta ?? (role === 'assistant' ? ' ' : ' ');
-          wrapper.append(avatar, bubble, meta);
-          chatEl.appendChild(wrapper);
-          chatEl.scrollTop = chatEl.scrollHeight;
-          return { wrapper, bubble, meta };
-        } catch (err) {
-          reportError(err);
-          return null;
-        }
+      function startAssistantMessage() {
+        const row = document.createElement('div');
+        row.className = 'msg assistant';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = '…';
+        row.appendChild(bubble);
+        chatEl.appendChild(row);
+        chatEl.scrollTop = chatEl.scrollHeight;
+        return bubble;
       }
 
-      function updateLastAssistant(text) {
-        try {
-          const nodes = Array.from(chatEl.querySelectorAll('.msg.assistant .bubble'));
-          const last = nodes[nodes.length - 1];
-          if (last) {
-            last.textContent = text;
-            chatEl.scrollTop = chatEl.scrollHeight;
+      function updateBubble(bubble, text) {
+        bubble.textContent = text;
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+
+      function extractText(out) {
+        if (!out) return '';
+        if (Array.isArray(out)) {
+          const o = out[0] || {};
+          return o.generated_text || o.summary_text || o.translation_text || o.text || '';
+        }
+        return out.generated_text || out.text || '';
+      }
+
+      function promptForToken(message) {
+        return new Promise((resolve) => {
+          tokenMsgEl.textContent = message || 'Enter your Hugging Face access token:';
+          tokenInputEl.value = localStorage.getItem('hf_token') || '';
+          tokenInputEl.type = 'password';
+          tokenBackdrop.hidden = false;
+          setTimeout(() => tokenInputEl.focus(), 0);
+
+          function cleanup() {
+            tokenSaveBtn.removeEventListener('click', onSave);
+            tokenCancelBtn.removeEventListener('click', onCancel);
+            tokenInputEl.removeEventListener('keydown', onKeydown);
+            tokenVisibilityBtn.removeEventListener('click', onToggle);
+            tokenBackdrop.hidden = true;
           }
-        } catch (err) {
-          reportError(err);
-        }
+          function onSave() {
+            const val = tokenInputEl.value.trim();
+            cleanup();
+            resolve(val || null);
+          }
+          function onCancel() {
+            cleanup();
+            resolve(null);
+          }
+          function onKeydown(e) {
+            if (e.key === 'Enter') onSave();
+            if (e.key === 'Escape') onCancel();
+          }
+          function onToggle() {
+            tokenInputEl.type = tokenInputEl.type === 'password' ? 'text' : 'password';
+          }
+          tokenSaveBtn.addEventListener('click', onSave);
+          tokenCancelBtn.addEventListener('click', onCancel);
+          tokenInputEl.addEventListener('keydown', onKeydown);
+          tokenVisibilityBtn.addEventListener('click', onToggle);
+        });
       }
 
-      function reportError(error) {
+      async function withAuthRetry(fn, promptText) {
         try {
-          const msg = (error && error.stack) ? error.stack : (error && error.message) ? error.message : String(error);
-          addMessage('assistant', `Error:\n\n${msg}`, { error: true, meta: 'stack trace' });
+          return await fn();
         } catch (e) {
-          // Last-resort: console
-          console.error('Failed to report error:', e, error);
+          if (isUnauthorizedError(e)) {
+            const token = await promptForToken(
+              promptText || 'This model requires access via a Hugging Face token.'
+            );
+            if (!token) throw e;
+            setToken(token);
+            return await fn();
+          }
+          throw e;
         }
       }
 
-      // Load Transformers.js dynamically (required)
-      let pipeline, env, AutoTokenizer;
-      try {
-        const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js');
-        pipeline = mod.pipeline;
-        env = mod.env;
-        AutoTokenizer = mod.AutoTokenizer;
-      } catch (err) {
-        reportError(err);
-        throw err; // cannot proceed
-      }
-
-      // Configure environment (browser cache for model files)
-      try {
-        env.allowRemoteModels = true; // allow fetching from the Hugging Face Hub / CDN
-        env.useBrowserCache = true;   // caches in IndexedDB/Cache Storage
-      } catch (err) {
-        reportError(err);
-      }
-
-      // Determine pipeline task based on model id
-      function resolveTask(modelId) {
+      async function ensurePipeline(modelId, task) {
+        if (state.pipe && state.modelId === modelId && state.task === task) return state.pipe;
+        state.loading = true;
+        showStatus('Loading model…');
         try {
-          if (/t5/i.test(modelId)) return 'text2text-generation';
-          return 'text-generation';
-        } catch (err) {
-          reportError(err);
-          return 'text-generation';
-        }
-      }
-
-      // Progress UI during model load
-      function progressCallback(data) {
-        try {
-          const { status, name, file, loaded, total } = data || {};
-          const pct = (loaded && total) ? ` ${(100 * loaded / total).toFixed(1)}%` : '';
-          const fileName = (file && file.split('/').pop()) || name || '…';
-          setStatus('loading', `${status || 'Loading'} ${fileName}${pct}`);
-        } catch (err) {
-          reportError(err);
-        }
-      }
-
-      // Load/Reload selected model
-      async function loadModel(modelId) {
-        setBusy(true);
-        setStatus('loading', `Loading ${modelId}…`);
-        try {
-          state.task = resolveTask(modelId);
-          state.pipe = await pipeline(state.task, modelId, { progress_callback: progressCallback });
+          // device: 'webgpu' will use WebGPU when available, else fall back.
+          const pipe = await withAuthRetry(
+            () => pipeline(task, modelId, { device: 'webgpu' }),
+            'Access to this model repository requires a Hugging Face token.'
+          );
+          state.pipe = pipe;
           state.modelId = modelId;
-          setStatus('', `Ready • ${modelId}`);
-        } catch (err) {
-          reportError(err);
-          setStatus('', `Failed to load ${modelId}`);
+          state.task = task;
+          showStatus('Model ready');
+          return pipe;
         } finally {
-          setBusy(false);
+          state.loading = false;
         }
       }
 
-      // Build input text from chat messages
-      function buildModelInput() {
+      async function generate(text, bubble) {
+        const modelId = modelSel.value;
+        await ensurePipeline(modelId, 'text-generation');
+
+        const genOptions = {
+          max_new_tokens: 256,
+          temperature: 0.7,
+          top_p: 0.95,
+          repetition_penalty: 1.1,
+        };
+
+        let full = '';
+        let streamObj = null;
+
+        // Try streaming if supported
         try {
-          // If tokenizer supports chat templates, use them
-          const tok = state.pipe?.tokenizer;
-          const msgs = state.messages.map(m => ({ role: m.role, content: m.content }));
-          if (tok && typeof tok.apply_chat_template === 'function') {
-            try {
-              return tok.apply_chat_template(msgs, {
-                tokenize: false,
-                add_generation_prompt: true,
-              });
-            } catch (e) {
-              // Fall through to manual prompt
-            }
-          }
-
-          // Fallback prompt formatting (works for generic causal LMs)
-          let prompt = 'You are a helpful assistant.\n';
-          for (const m of msgs) {
-            if (m.role === 'system') {
-              prompt += `[System] ${m.content}\n`;
-            } else if (m.role === 'user') {
-              prompt += `User: ${m.content}\n`;
-            } else if (m.role === 'assistant') {
-              prompt += `Assistant: ${m.content}\n`;
-            }
-          }
-          prompt += 'Assistant:';
-          return prompt;
-        } catch (err) {
-          reportError(err);
-          return (state.messages[state.messages.length - 1]?.content) || '';
+          streamObj = state.pipe(text, { ...genOptions, stream: true });
+        } catch (e) {
+          streamObj = null;
         }
-      }
 
-      // Generate a response with streaming
-      async function generateResponse() {
-        if (!state.pipe) {
-          addMessage('assistant', 'Model is not loaded yet.');
-          return;
-        }
-        setBusy(true);
-        setStatus('generating', `Generating with ${state.modelId}…`);
-
-        // Create a placeholder assistant message to stream into
-        const assistant = addMessage('assistant', '…');
-
-        // Optional: support abort
-        state.abortController = new AbortController();
-
-        try {
-          const isT5 = state.task === 'text2text-generation';
-          const inputText = isT5 ? (state.messages[state.messages.length - 1]?.content || '') : buildModelInput();
-
-          const genOptions = {
-            max_new_tokens: 180,
-            temperature: 0.7,
-            top_p: 0.9,
-            repetition_penalty: 1.08,
-            stream: true,
-            // signal for cancellation
-            signal: state.abortController.signal,
-          };
-
-          // Stream tokens
-          let full = '';
-          let supportsStreaming = false;
+        if (isAsyncIterable(streamObj)) {
           try {
-            const result = state.pipe(inputText, { ...genOptions, stream: true });
-            supportsStreaming = typeof result?.[Symbol.asyncIterator] === 'function';
-          } catch (e) {
-            supportsStreaming = false;
-          }
-
-          if (supportsStreaming) {
-            let full = '';
-            for await (const out of state.pipe(inputText, genOptions)) {
-              const tokenText = out?.token?.text || out?.text || '';
+            for await (const out of streamObj) {
+              const tokenText = (out && (out.token && out.token.text)) || out?.text || '';
               if (tokenText) {
                 full += tokenText;
-                updateLastAssistant(full);
+                updateBubble(bubble, full);
               }
             }
-            state.messages.push({ role: 'assistant', content: full });
-          } else {
-            const out = await state.pipe(inputText, { ...genOptions, stream: false });
-            const text = Array.isArray(out)
-              ? out[0]?.generated_text ?? out[0]?.summary_text ?? out[0]?.translation_text ?? ''
-              : out?.generated_text ?? out?.text ?? '';
-            updateLastAssistant(text || '(no output)');
-            state.messages.push({ role: 'assistant', content: text });
-          }
-
-          // Some pipelines only return final output when not streaming; if empty, try non-stream as fallback
-          if (!full.trim()) {
-            const finalOut = await state.pipe(inputText, { ...genOptions, stream: false });
-            const text =
-              Array.isArray(finalOut) ? (finalOut[0]?.generated_text ?? finalOut[0]?.summary_text ?? finalOut[0]?.translation_text ?? '') :
-                (finalOut?.generated_text ?? finalOut?.text ?? '');
-            full = (text || '').toString();
-            updateLastAssistant(full || '(no output)');
-          }
-
-          // Save assistant turn
-          state.messages.push({ role: 'assistant', content: full || '' });
-          setStatus('', `Ready • ${state.modelId}`);
-        } catch (err) {
-          if (err && err.name === 'AbortError') {
-            updateLastAssistant('[stopped]');
-            addMessage('assistant', 'Generation stopped by user.', { meta: 'stopped' });
-            setStatus('', `Ready • ${state.modelId}`);
-          } else {
-            reportError(err);
-            setStatus('', `Ready • ${state.modelId}`);
-          }
-        } finally {
-          setBusy(false);
-          state.abortController = null;
-        }
-      }
-
-      // Send handler
-      async function onSend() {
-        try {
-          const text = (inputEl.value || '').trim();
-          if (!text || state.busy) return;
-          // Append user message
-          state.messages.push({ role: 'user', content: text });
-          addMessage('user', text);
-          inputEl.value = '';
-          inputEl.style.height = 'auto';
-          await generateResponse();
-        } catch (err) {
-          reportError(err);
-        }
-      }
-
-      // Autosize textarea
-      function autoGrow() {
-        try {
-          inputEl.style.height = 'auto';
-          inputEl.style.height = Math.min(inputEl.scrollHeight, window.innerHeight * 0.36) + 'px';
-        } catch (err) {
-          reportError(err);
-        }
-      }
-
-      // Wire up events (with error handling)
-      try {
-        sendBtn.addEventListener('click', async () => {
-          try { await onSend(); } catch (err) { reportError(err); }
-        });
-        stopBtn.addEventListener('click', () => {
-          try {
-            if (state.abortController) state.abortController.abort();
-          } catch (err) { reportError(err); }
-        });
-        inputEl.addEventListener('keydown', async (e) => {
-          try {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              await onSend();
+            return;
+          } catch (e) {
+            if (isUnauthorizedError(e)) {
+              // Ask for token and retry once (non-streaming for simplicity)
+              const token = await promptForToken('Authorization required. Enter your Hugging Face token:');
+              if (token) {
+                setToken(token);
+                const out = await state.pipe(text, { ...genOptions, stream: false });
+                full = extractText(out) || '(no output)';
+                updateBubble(bubble, full);
+                return;
+              } else {
+                updateBubble(bubble, 'Token required to continue.');
+                return;
+              }
+            } else {
+              // Fall through to non-streaming path on other errors
             }
-          } catch (err) { reportError(err); }
-        });
-        inputEl.addEventListener('input', () => {
-          try { autoGrow(); } catch (err) { reportError(err); }
-        });
-        modelSelect.addEventListener('change', async () => {
-          try {
-            if (state.busy) return;
-            await loadModel(modelSelect.value);
-          } catch (err) {
-            reportError(err);
           }
-        });
-      } catch (err) {
-        reportError(err);
+        }
+
+        // Fallback to non-streaming (with auth retry)
+        const out = await withAuthRetry(
+          () => state.pipe(text, { ...genOptions, stream: false }),
+          'Authorization required to download model files. Enter your Hugging Face token:'
+        );
+        full = extractText(out) || '(no output)';
+        updateBubble(bubble, full);
       }
 
-      // Global error guards
-      window.addEventListener('error', (e) => {
-        reportError(e.error || e.message || e);
+      async function onSend() {
+        const text = inputEl.value.trim();
+        if (!text) return;
+
+        inputEl.value = '';
+        addMessage('user', text);
+        const bubble = startAssistantMessage();
+
+        try {
+          await generate(text, bubble);
+        } catch (e) {
+          if (isUnauthorizedError(e)) {
+            updateBubble(bubble, 'This model requires a Hugging Face token. Click “Set token” and try again.');
+            return;
+          }
+          console.error(e);
+          updateBubble(bubble, 'Error: ' + (e?.message || String(e)));
+        }
+      }
+
+      // Wire up UI events
+      sendBtn.addEventListener('click', onSend);
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          onSend();
+        }
       });
-      window.addEventListener('unhandledrejection', (e) => {
-        reportError(e.reason || e);
+      document.getElementById('set-token').addEventListener('click', async () => {
+        const token = await promptForToken('Enter your Hugging Face access token:');
+        if (token !== null) {
+          setToken(token);
+          showTransientToast(token ? 'Token saved' : 'Token cleared');
+        }
       });
 
-      // Initial model load (default selection)
-      await loadModel(state.modelId);
-      setStatus('', `Ready • ${state.modelId}`);
-    })().catch((err) => {
-      // Top-level catch (final safety)
-      const pre = document.createElement('pre');
-      pre.textContent = (err && err.stack) ? err.stack : String(err);
-      pre.style.whiteSpace = 'pre-wrap';
-      pre.style.color = '#ffb4c7';
-      pre.style.padding = '12px';
-      pre.style.margin = '12px';
-      pre.style.border = '1px solid #5d1b26';
-      pre.style.background = '#220a0f';
-      document.body.appendChild(pre);
-      console.error(err);
-    });
+      // Initial message
+      addMessage('assistant', 'Hello! I run fully in your browser using Transformers.js. Pick a model above and say hi.\n\nOn-device, no server calls.');
+
+      // Optional: auto-select last used model
+      try {
+        const lastModel = localStorage.getItem('last_model');
+        if (lastModel) modelSel.value = lastModel;
+      } catch {}
+      modelSel.addEventListener('change', () => {
+        localStorage.setItem('last_model', modelSel.value);
+        // Invalidate existing pipeline so we reload for the new model
+        state.pipe = null;
+        state.modelId = null;
+        showStatus('Idle');
+      });
+    })();
   </script>
 </body>
-
 </html>
