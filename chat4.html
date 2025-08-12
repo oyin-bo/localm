@@ -31,6 +31,8 @@
       overflow-y: auto;
       padding: 10px;
       background: white;
+      display: flex;
+      flex-direction: column;
     }
     .message {
       margin: 10px 0;
@@ -94,39 +96,13 @@
   </div>
 
   <script type="module">
-    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@3.7.1/dist/transformers.min.js';
-
-    let currentModel = null;
-    let generator = null;
-    let busy = false;
-
     const chat = document.getElementById('chat');
     const input = document.getElementById('user-input');
     const sendBtn = document.getElementById('send-btn');
     const modelSelect = document.getElementById('model-select');
 
-    const worker = new Worker(URL.createObjectURL(new Blob([`
-      importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@3.7.1/dist/transformers.min.js');
-
-      let generator = null;
-
-      onmessage = async (e) => {
-        const { type, model, message, token } = e.data;
-        try {
-          if (type === 'load') {
-            postMessage({ type: 'status', message: 'Loading model...' });
-            generator = await pipeline('text-generation', model, { progress_callback: (x) => postMessage({ type: 'progress', message: x }) });
-            postMessage({ type: 'ready' });
-          } else if (type === 'generate') {
-            if (!generator) throw new Error('Model not loaded');
-            const output = await generator(message, { max_new_tokens: 100 });
-            postMessage({ type: 'response', message: output[0].generated_text });
-          }
-        } catch (err) {
-          postMessage({ type: 'error', message: err.stack });
-        }
-      };
-    `], { type: 'application/javascript' })));
+    let busy = false;
+    let worker;
 
     function appendMessage(text, sender) {
       const div = document.createElement('div');
@@ -142,10 +118,58 @@
       input.disabled = state;
     }
 
+    function createWorker(modelName) {
+      if (worker) worker.terminate();
+
+      const workerCode = `
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@3.7.1/dist/transformers.min.js';
+
+        let generator = null;
+
+        self.onmessage = async (e) => {
+          const { type, message } = e.data;
+          try {
+            if (type === 'load') {
+              self.postMessage({ type: 'status', message: 'Loading model: ' + message });
+              generator = await pipeline('text-generation', message);
+              self.postMessage({ type: 'ready' });
+            } else if (type === 'generate') {
+              if (!generator) throw new Error('Model not loaded');
+              const output = await generator(message, { max_new_tokens: 100 });
+              self.postMessage({ type: 'response', message: output[0].generated_text });
+            }
+          } catch (err) {
+            self.postMessage({ type: 'error', message: err.stack });
+          }
+        };
+      `;
+
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+
+      worker.onmessage = (e) => {
+        const { type, message } = e.data;
+        if (type === 'status') {
+          appendMessage(message, 'bot');
+        } else if (type === 'ready') {
+          appendMessage('Model loaded and ready!', 'bot');
+          setBusy(false);
+        } else if (type === 'response') {
+          appendMessage(message, 'bot');
+          setBusy(false);
+        } else if (type === 'error') {
+          appendMessage('Error: ' + message, 'bot');
+          setBusy(false);
+        }
+      };
+
+      setBusy(true);
+      worker.postMessage({ type: 'load', message: modelName });
+    }
+
     modelSelect.addEventListener('change', () => {
       const selected = modelSelect.value;
-      setBusy(true);
-      worker.postMessage({ type: 'load', model: selected });
+      createWorker(selected);
     });
 
     sendBtn.addEventListener('click', () => {
@@ -157,26 +181,8 @@
       worker.postMessage({ type: 'generate', message: text });
     });
 
-    worker.onmessage = (e) => {
-      const { type, message } = e.data;
-      if (type === 'status') {
-        appendMessage(message, 'bot');
-      } else if (type === 'progress') {
-        // Optional: show progress
-      } else if (type === 'ready') {
-        appendMessage('Model loaded and ready!', 'bot');
-        setBusy(false);
-      } else if (type === 'response') {
-        appendMessage(message, 'bot');
-        setBusy(false);
-      } else if (type === 'error') {
-        appendMessage('Error: ' + message, 'bot');
-        setBusy(false);
-      }
-    };
-
     // Initial load
-    worker.postMessage({ type: 'load', model: modelSelect.value });
+    createWorker(modelSelect.value);
   </script>
 </body>
 </html>
