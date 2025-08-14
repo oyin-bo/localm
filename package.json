@@ -1,0 +1,22 @@
+{
+  "name": "localm",
+  "version": "1.0.1",
+  "description": "",
+  "main": "chat-full.js",
+  "scripts": {
+    "start": "node serve.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oyin-bo/localm.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/oyin-bo/localm/issues"
+  },
+  "homepage": "https://github.com/oyin-bo/localm#readme"
+}
