@@ -84,13 +84,17 @@ body {
         kitCommonmark,
         milkdownCore,
         milkdownPresetCommonmark,
-        milkdownProse
+        milkdownProse,
+        prosemirrorKeymap,
+        prosemirrorState
       ] = await Promise.all([
         import(`https://esm.sh/@milkdown/kit@${version}/core`),
         import(`https://esm.sh/@milkdown/kit@${version}/preset/commonmark`),
         import(`https://esm.sh/@milkdown/core@${version}`),
         import(`https://esm.sh/@milkdown/preset-commonmark@${version}`),
-        import(`https://esm.sh/@milkdown/prose@${version}`)
+        import(`https://esm.sh/@milkdown/prose@${version}`),
+        import('https://esm.sh/prosemirror-keymap@1.2.0'),
+        import('https://esm.sh/prosemirror-state@1.3.4')
       ]);
 
       if (chatLog) chatLog.innerHTML = '';
@@ -124,6 +128,8 @@ body {
         milkdownCore,
         milkdownPresetCommonmark,
         milkdownProse,
+        prosemirrorKeymap,
+        prosemirrorState,
         chatLogEditor,
         chatInputEditor
       };
@@ -168,9 +174,47 @@ body {
     const { kitCore, kitCommonmark, chatLog, chatInput } = initHTML();
     const milkdownResult = await initMilkdown({ chatLog, chatInput });
     if (!milkdownResult) return;
-    const { chatLogEditor, chatInputEditor, milkdownCore } = milkdownResult;
+  const { chatLogEditor, chatInputEditor, milkdownCore, prosemirrorKeymap, prosemirrorState } = milkdownResult;
 
-  outputMessage(chatLogEditor, milkdownCore, 'Milkdown editor component is loaded correctly. Please try typing...');
+    outputMessage(chatLogEditor, milkdownCore, 'Milkdown editor component is loaded correctly. Please try typing...');
+
+    // Add a ProseMirror plugin to handle Enter key in chat input editor
+    await chatInputEditor.action((ctx) => {
+      const serializer = ctx.get(milkdownCore.serializerCtx);
+      const view = ctx.get(milkdownCore.editorViewCtx);
+      const { Plugin } = prosemirrorState;
+      // Add a keymap plugin for Enter
+      const enterPlugin = new Plugin({
+        props: {
+          handleKeyDown(view, event) {
+            if (
+              event.key === 'Enter' &&
+              !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey
+            ) {
+              event.preventDefault();
+              const inputMarkdown = serializer(view.state.doc).trim();
+              if (inputMarkdown) {
+                const msg = `user typed:\n> ${inputMarkdown.replace(/\n/g, '\n> ')}`;
+                outputMessage(chatLogEditor, milkdownCore, msg);
+                // Clear input
+                const tr = view.state.tr.replaceWith(
+                  0,
+                  view.state.doc.content.size,
+                  view.state.schema.nodes.doc.createAndFill().content
+                );
+                view.dispatch(tr);
+              }
+              return true;
+            }
+            return false;
+          },
+        },
+      });
+      view.state = view.state.reconfigure({
+        plugins: [...view.state.plugins, enterPlugin],
+      });
+      view.updateState(view.state);
+    });
 
     window.onerror = (...args) => {
       try {
