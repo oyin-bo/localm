@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["src/app/app.css"],
+  "sourcesContent": ["body {\n  position: absolute;\n  left: 0;\n  top: 0;\n  width: 100%;\n  height: 100%;\n  margin: 0;\n  padding: 0;\n  border: none;\n  display: grid;\n  grid-template: 1fr auto / 1fr;\n}\n\n.chat-log {\n  display: grid;\n  grid-template: 1fr / 1fr;\n}\n\n.chat-input {\n  border-top: solid 1px black;\n  display: grid;\n  grid-template: 1fr auto / 1fr;\n}\n\n.prose-mirror {\n  overflow-y: auto;\n}\n\n.milkdown {\n  display: grid;\n  grid-template: 1fr / 1fr;\n}\n\n.milkdown .ProseMirror {\n  padding: 0.6em 1em;\n  font-family: inherit;\n  white-space: pre-wrap;\n  outline: none;\n}"],
+  "mappings": ";AAAA;AACE,YAAU;AACV,QAAM;AACN,OAAK;AACL,SAAO;AACP,UAAQ;AACR,UAAQ;AACR,WAAS;AACT,UAAQ;AACR,WAAS;AACT,iBAAe,IAAI,KAAK,EAAE;AAC5B;AAEA,CAAC;AACC,WAAS;AACT,iBAAe,IAAI,EAAE;AACvB;AAEA,CAAC;AACC,cAAY,MAAM,IAAI;AACtB,WAAS;AACT,iBAAe,IAAI,KAAK,EAAE;AAC5B;AAEA,CAAC;AACC,cAAY;AACd;AAEA,CAAC;AACC,WAAS;AACT,iBAAe,IAAI,EAAE;AACvB;AAEA,CALC,SAKS,CAAC;AACT,WAAS,MAAM;AACf,eAAa;AACb,eAAa;AACb,WAAS;AACX;",
+  "names": []
+}

@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyLLM In-Browser Chat with RAG</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        #chat-container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            width: 100vw;
+            max-width: none;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 80vh;
+            max-height: 95vh;
+            position: relative;
+        }
+
+        h1 {
+            text-align: center;
+            color: #4a4a4a;
+            padding: 15px;
+            margin: 0;
+            border-bottom: 1px solid #eee;
+            font-size: 1.5em;
+        }
+
+        .status-message {
+            text-align: center;
+            padding: 10px;
+            background-color: #e0f7fa;
+            color: #00796b;
+            font-weight: bold;
+            border-bottom: 1px solid #b2ebf2;
+        }
+
+        #chat-box {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message-container {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        .message-container.user {
+            align-self: flex-end;
+            align-items: flex-end;
+        }
+
+        .message-container.assistant {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+
+        .message-container.system {
+            align-self: center; /* Center system messages */
+            align-items: center;
+            font-size: 0.85em;
+            color: #666;
+            text-align: left;
+            padding: 5px 10px;
+            border-radius: 10px;
+            background-color: #f0f0f0;
+            margin: 5px 0;
+            white-space: pre-wrap; /* preserve markdown line breaks */
+        }
+
+        .message-bubble {
+            padding: 10px 15px;
+            border-radius: 20px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            white-space: pre-wrap; /* Preserve whitespace and line breaks */
+        }
+
+        .message-container.user .message-bubble {
+            background-color: #007bff;
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message-container.assistant .message-bubble {
+            background-color: #e9e9eb;
+            color: #333;
+            border-bottom-left-radius: 5px;
+        }
+
+        .chat-input-container {
+            display: flex;
+            padding: 15px;
+            border-top: 1px solid #eee;
+            background-color: #fff;
+            gap: 10px;
+        }
+
+        #user-input {
+            flex-grow: 1;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-size: 1em;
+            outline: none;
+        }
+
+        #user-input:focus {
+            border-color: #007bff;
+        }
+
+        #send {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s;
+        }
+
+        #send:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        #send:disabled {
+            background-color: #a0c9ff;
+            cursor: not-allowed;
+        }
+
+        .chat-stats {
+            font-size: 0.8em;
+            color: #666;
+            text-align: right;
+            padding: 5px 20px;
+            background-color: #f9f9f9;
+            border-top: 1px solid #eee;
+        }
+
+        .hidden {
+            display: none!important;
+        }
+
+        .controls {
+            padding: 8px 12px;
+            background:#fafafa;
+            border-bottom:1px solid #eee;
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+            align-items:center;
+            font-size:0.75rem;
+        }
+        .controls input[type=text] {
+            padding:4px 8px;
+            border:1px solid #ccc;
+            border-radius:6px;
+            font-size:0.75rem;
+        }
+        .controls button, .controls select {
+            padding:4px 10px;
+            font-size:0.7rem;
+            border:1px solid #ccc;
+            border-radius:6px;
+            background:#fff;
+            cursor:pointer;
+        }
+        .controls button:hover { background:#f0f0f0; }
+        #diagnostics {
+            max-height:120px;
+            overflow:auto;
+            font-family:monospace;
+            background:#1e1e1e;
+            color:#c9d1d9;
+            padding:6px 8px;
+            font-size:0.65rem;
+            border-top:1px solid #333;
+            display:none;
+            white-space:pre-wrap;
+        }
+        #diagnostics.show { display:block; }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <h1>In-Browser LLM Chat with RAG</h1>
+        <div class="controls">
+            <label>HF Token:
+                <input type="text" id="hf-token" placeholder="hf_... (optional)" size="18" autocomplete="off" />
+            </label>
+            <button id="apply-token" title="Store token (localStorage) & reload">Apply Token + Reload</button>
+            <label style="display:flex;align-items:center;gap:4px;">Models:
+                <input type="text" id="model-candidates" placeholder="comma-separated model ids" size="26" />
+            </label>
+            <button id="apply-models" title="Store custom model list & reload">Apply Models</button>
+            <label style="display:flex;align-items:center;gap:4px;">Skip RAG:
+                <input type="checkbox" id="skip-rag" title="If checked, no retrieval augmented context will be gathered." />
+            </label>
+            
+            <select id="preferred-backend" title="Preferred first backend">
+                <option value="transformers-webgpu">TF WebGPU</option>
+                <option value="transformers-webgl">TF WebGL</option>
+                <option value="webllm">WebLLM</option>
+                <option value="transformers-wasm">TF WASM</option>
+            </select>
+            <button id="force-reload" title="Reinitialize models">Reload Models</button>
+            <button id="trial-models" title="Try/test multiple small models">Trial Models</button>
+            <button id="toggle-diagnostics" title="Show/Hide diagnostics">Diagnostics</button>
+            <span id="active-backend" style="margin-left:auto;font-weight:bold;">backend: -</span>
+        </div>
+        <div id="download-status" class="status-message">Loading model...</div>
+        <div id="chat-box">
+            </div>
+        <div id="chat-stats" class="chat-stats hidden"></div>
+    <div id="diagnostics"></div>
+    <div id="trial-results" style="display:none;padding:12px;"></div>
+        <div class="chat-input-container">
+            <input type="text" id="user-input" placeholder="Loading models for RAG..." disabled>
+            <button id="send" disabled>Send</button>
+        </div>
+    </div>
+
+    <script type="module">
+    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+    
+    // ---- Console Log Filtering (suppress noisy ONNX optimizer warnings) ----
+    const LOG_FILTER_PATTERNS = [
+        /CleanUnusedInitializersAndNodeArgs/i,
+        /graph\.cc:\d+ CleanUnusedInitializersAndNodeArgs/i,
+        /Removing initializer '\/transformer\//i
+    ];
+    const originalConsole = { log: console.log, warn: console.warn };
+    function shouldSuppress(args) {
+        return args.some(a => typeof a === 'string' && LOG_FILTER_PATTERNS.some(p => p.test(a)));
+    }
+    console.warn = (...args) => {
+        if (shouldSuppress(args)) { return; }
+        originalConsole.warn(...args);
+    };
+    console.log = (...args) => {
+        if (shouldSuppress(args)) { return; }
+        originalConsole.log(...args);
+    };
+
+        /*************** WebLLM Logic & RAG Components ***************/
+
+        // System message for the LLM to understand its role and tool use
+        const systemMessageContent = `
+You are an intelligent person with honesty and broad knowledge.
+
+Although you also know about SQL queries.
+
+You have access to a special "lookup" tool. If you need more specific details about tables or concepts to answer a user's question, you MUST respond with a JSON object in this exact format:
+
+\`\`\`json
+{
+  "action": "lookup_schema_info",
+  "query": "concise natural language phrase describing what schema information you need"
+}
+\`\`\`
+
+Examples of "query" for the lookup_schema_info action:
+- "details about the Users and Products tables"
+- "columns in the Orders table and its related tables"
+- "how Categories table relates to Products"
+
+If you can answer the question directly with your existing knowledge or after using the tool, provide the natural language answer or SQL query. Do NOT use the lookup tool if you already have enough information.
+`.trim(); // Trim to remove leading/trailing whitespace
+
+        const messages = [{ role: "system", content: systemMessageContent }];
+
+        const chatBox = document.getElementById("chat-box");
+        const userInput = document.getElementById("user-input");
+        const sendButton = document.getElementById("send");
+        const downloadStatus = document.getElementById("download-status");
+        const chatStats = document.getElementById("chat-stats");
+        const diagnosticsEl = document.getElementById('diagnostics');
+        const tokenInput = document.getElementById('hf-token');
+        const applyTokenBtn = document.getElementById('apply-token');
+        const forceReloadBtn = document.getElementById('force-reload');
+        const toggleDiagBtn = document.getElementById('toggle-diagnostics');
+        const backendSelect = document.getElementById('preferred-backend');
+        const activeBackendLabel = document.getElementById('active-backend');
+        const trialModelsBtn = document.getElementById('trial-models');
+    const skipRagCheckbox = document.getElementById('skip-rag');
+
+
+        let currentAssistantMessageElement = null; // To update the streaming message
+        let embedder = null; // In-browser embedding model
+
+    // Fix: Declare engine as 'let' at module scope. It will be instantiated inside initializeModels.
+    let engine;
+    // Backend selection flow (priority):
+    // 1. transformers:webgpu  2. transformers:webgl  3. webllm:webgpu  4. transformers:wasm
+    let chatBackend = null;
+    let textGenPipeline = null; // transformers.js pipeline instance
+        // Candidate models (ordered). We rotate until one loads. Prefer fully open, ungated models first.
+        let TRANSFORMERS_MODEL_CANDIDATES = [];
+        const DEFAULT_TRANSFORMERS_MODEL_CANDIDATES = [
+            // Force GPT2 first as requested, with a tiny fallback.
+            'Xenova/gpt2',               // preferred primary model for chat
+            'Xenova/distilgpt2'          // tiny fallback
+            // (Removed larger models to avoid long downloads / gated issues without token)
+        ];
+        const SMALLER_MODEL_HINT = 'Xenova/distilgpt2';
+        const modelCandidatesInput = document.getElementById('model-candidates');
+        const applyModelsBtn = document.getElementById('apply-models');
+        const storedModels = localStorage.getItem('MODEL_CANDIDATES');
+        if (storedModels) {
+            TRANSFORMERS_MODEL_CANDIDATES = storedModels.split(',').map(s=>s.trim()).filter(Boolean);
+            modelCandidatesInput.value = TRANSFORMERS_MODEL_CANDIDATES.join(',');
+        } else {
+            TRANSFORMERS_MODEL_CANDIDATES = [...DEFAULT_TRANSFORMERS_MODEL_CANDIDATES];
+            modelCandidatesInput.value = TRANSFORMERS_MODEL_CANDIDATES.join(',');
+        }
+        let chosenTransformersModel = null;
+        // Load skip RAG preference
+        const storedSkipRag = localStorage.getItem('SKIP_RAG') === '1';
+        skipRagCheckbox.checked = storedSkipRag;
+        skipRagCheckbox.addEventListener('change', () => {
+            localStorage.setItem('SKIP_RAG', skipRagCheckbox.checked ? '1' : '0');
+            appendDiagnostic('Skip RAG set to ' + skipRagCheckbox.checked);
+        });
+
+
+        // Allow user to inject HF token before loading (e.g., window.HF_TOKEN = 'hf_xxx'; before this script)
+        if (window.HF_TOKEN) {
+            env.HF_ACCESS_TOKEN = window.HF_TOKEN;
+        }
+        // Load token from localStorage if present
+        const savedToken = localStorage.getItem('HF_TOKEN');
+        if (savedToken && !env.HF_ACCESS_TOKEN) {
+            env.HF_ACCESS_TOKEN = savedToken;
+            tokenInput.value = savedToken.slice(0,12) + '…';
+        }
+        // Ensure remote huggingface URL (avoid accidental local mirror attempts). Can be customized.
+        env.remoteURL = 'https://huggingface.co';
+        // Disable local model resolution attempts to avoid 404 on /models/* when self-hosting without copies.
+        env.allowLocalModels = false;
+
+        let miniTableIndexEmbeddings = []; // Stores { tableId: "users", text: "...", embedding: [...] }
+        let detailedSchemaEmbeddings = []; // Stores { tableId: "users", chunkId: "col_details", text: "...", embedding: [...] }
+
+        // --- Your SQL Table Data ---
+        // This static data represents your knowledge base. In a real app, this might come from a file.
+        const rawSqlSchema = [
+            {
+                name: "Users",
+                summary: "Stores user account details including authentication and profile information.",
+                details: [
+                    "Table `Users` has columns: UserID (PRIMARY KEY, INTEGER), Username (TEXT UNIQUE), Email (TEXT UNIQUE), PasswordHash (TEXT), RegistrationDate (DATETIME).",
+                    "Purpose of `Users` table: Manages user login, identifies individuals, and stores core contact info.",
+                    "Relationships of `Users`: One-to-many with `Orders` (UserID in `Orders` references UserID in `Users`)."
+                ]
+            },
+            {
+                name: "Products",
+                summary: "Lists all available products with descriptions, pricing, and stock.",
+                details: [
+                    "Table `Products` has columns: ProductID (PRIMARY KEY, INTEGER), ProductName (TEXT), Description (TEXT), CategoryID (FOREIGN KEY to Categories.CategoryID, INTEGER).",
+                    "Table `Products` also has columns: Price (DECIMAL), StockQuantity (INTEGER), CreatedDate (DATETIME), LastUpdatedDate (DATETIME).",
+                    "Table `Products` also has columns: ImageURL (TEXT), Weight (DECIMAL), Dimensions (TEXT), ProductStatus (TEXT).",
+                    "Relationships of `Products`: One-to-many with `OrderItems` (ProductID in `OrderItems` references ProductID in `Products`)."
+                ]
+            },
+            {
+                name: "Orders",
+                summary: "Records customer purchase transactions.",
+                details: [
+                    "Table `Orders` has columns: OrderID (PRIMARY KEY, INTEGER), UserID (FOREIGN KEY to Users.UserID, INTEGER), OrderDate (DATETIME), TotalAmount (DECIMAL).",
+                    "Purpose of `Orders` table: Tracks individual customer purchases and their aggregated cost.",
+                    "Relationships of `Orders`: One-to-many with `OrderItems` (OrderID in `OrderItems` references OrderID in `Orders`)."
+                ]
+            },
+            {
+                name: "OrderItems",
+                summary: "Details each item within a specific customer order.",
+                details: [
+                    "Table `OrderItems` has columns: OrderItemID (PRIMARY KEY, INTEGER), OrderID (FOREIGN KEY to Orders.OrderID, INTEGER), ProductID (FOREIGN KEY to Products.ProductID, INTEGER).",
+                    "Table `OrderItems` also has columns: Quantity (INTEGER), UnitPriceAtPurchase (DECIMAL), SubtotalItemAmount (DECIMAL).",
+                    "Purpose of `OrderItems` table: Breaks down an order into its constituent products and quantities."
+                ]
+            },
+            {
+                name: "Categories",
+                summary: "Classifies products into various categories.",
+                details: [
+                    "Table `Categories` has columns: CategoryID (PRIMARY KEY, INTEGER), CategoryName (TEXT UNIQUE), CategoryDescription (TEXT).",
+                    "Purpose of `Categories` table: Helps organize products for easier browsing and filtering.",
+                    "Relationships of `Categories`: One-to-many with `Products` (CategoryID in `Products` references CategoryID in `Categories`)."
+                ]
+            }
+        ];
+
+        appendDiagnostic(messages[0].content);
+
+        // --- Helper Functions ---
+
+        // Callback function for initializing WebLLM progress.
+        function updateEngineInitProgressCallback(report) {
+            console.log("WebLLM Init:", report.progress, report.text);
+            downloadStatus.textContent = report.text;
+        }
+
+        // Helper function to append messages to the chat box
+        function appendMessage(message, isStreaming = false) {
+            const messageContainer = document.createElement("div");
+            messageContainer.classList.add("message-container", message.role);
+
+            // Only create a message bubble for user and assistant messages
+            if (message.role === "user" || message.role === "assistant") {
+                const messageBubble = document.createElement("div");
+                messageBubble.classList.add("message-bubble");
+                messageBubble.textContent = message.content;
+                messageContainer.appendChild(messageBubble);
+            } else {
+                // For system messages, just set the text content directly on the container
+                messageContainer.textContent = message.content;
+            }
+
+            chatBox.appendChild(messageContainer);
+            chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+
+            if (isStreaming && message.role === "assistant") {
+                currentAssistantMessageElement = messageContainer.querySelector(".message-bubble");
+            }
+        }
+
+        // Helper function to update the content of the last assistant message (for streaming)
+        function updateLastAssistantMessage(newContent) {
+            if (currentAssistantMessageElement) {
+                currentAssistantMessageElement.textContent = newContent;
+                chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+            }
+        }
+
+        // Cosine Similarity Function for RAG lookup
+        function cosineSimilarity(vec1, vec2) {
+            if (vec1.length !== vec2.length) {
+                return 0;
+            }
+            let dotProduct = 0;
+            let magnitude1 = 0;
+            let magnitude2 = 0;
+            for (let i = 0; i < vec1.length; i++) {
+                dotProduct += vec1[i] * vec2[i];
+                magnitude1 += vec1[i] * vec1[i];
+                magnitude2 += vec2[i] * vec2[i];
+            }
+            magnitude1 = Math.sqrt(magnitude1);
+            magnitude2 = Math.sqrt(magnitude2);
+            if (magnitude1 === 0 || magnitude2 === 0) {
+                return 0;
+            }
+            return dotProduct / (magnitude1 * magnitude2);
+        }
+
+        // --- RAG Lookup Logic ---
+        async function performRagLookup(query) {
+            if (skipRagCheckbox.checked) {
+                appendDiagnostic('RAG skipped by user preference.');
+                return null;
+            }
+            if (!embedder || miniTableIndexEmbeddings.length === 0 || detailedSchemaEmbeddings.length === 0) {
+                console.warn("Embedding model or knowledge base not ready for RAG lookup.");
+                appendDiagnostic("Embedding model or knowledge base not ready for RAG lookup.");
+                return null;
+            }
+            appendDiagnostic('RAG start for query: ' + query);
+
+            try {
+                // Stage 1: Embed user query and identify relevant tables from mini-index
+                const queryEmbeddingOutput = await embedder(query, { pooling: 'mean', normalize: true });
+                const queryEmbedding = queryEmbeddingOutput.data;
+                appendDiagnostic('RAG: query embedded dim=' + queryEmbedding.length);
+
+                let tableSimilarities = [];
+                for (const tableIndex of miniTableIndexEmbeddings) {
+                    const score = cosineSimilarity(queryEmbedding, tableIndex.embedding);
+                    tableSimilarities.push({ tableId: tableIndex.tableId, score: score });
+                }
+
+                tableSimilarities.sort((a, b) => b.score - a.score);
+                const topRelevantTableIds = tableSimilarities.filter(s => s.score > 0.5).slice(0, 3).map(s => s.tableId); // Top 3 tables with a minimum score
+
+                if (topRelevantTableIds.length === 0) {
+                    console.log("No highly relevant tables identified for query:", query);
+                    appendDiagnostic("RAG: No table above threshold.");
+                    return null;
+                }
+                appendDiagnostic("RAG: tables -> " + topRelevantTableIds.join(','));
+                console.log("Identified relevant tables for RAG:", topRelevantTableIds);
+
+                // Stage 2: Filter detailed chunks by relevant tables and re-rank
+                let relevantDetailedChunks = [];
+                const filteredDetailedChunks = detailedSchemaEmbeddings.filter(chunk =>
+                    topRelevantTableIds.includes(chunk.tableId)
+                );
+
+                let chunkSimilarities = [];
+                for (const chunk of filteredDetailedChunks) {
+                    const score = cosineSimilarity(queryEmbedding, chunk.embedding);
+                    chunkSimilarities.push({ chunk: chunk.text, score: score });
+                }
+
+                chunkSimilarities.sort((a, b) => b.score - a.score);
+
+                // Consolidate context: take top N most relevant detailed chunks
+                const maxChunksToInclude = 5; // Limit the number of chunks to manage context window
+                const contextChunks = chunkSimilarities.filter(s => s.score > 0.4).slice(0, maxChunksToInclude).map(s => s.chunk); // Filter by score again
+
+                if (contextChunks.length > 0) {
+                    appendDiagnostic('RAG: selected ' + contextChunks.length + ' chunks.');
+                    return contextChunks.join("\n\n---\n\n");
+                } else {
+                    appendDiagnostic('RAG: No chunk passed score filter.');
+                    return null; // No relevant chunks found after filtering
+                }
+
+            } catch (error) {
+                console.error("Error during RAG lookup:", error);
+                return null;
+            }
+        }
+
+        // --- Model Initialization ---
+
+        async function initializeModels() {
+            downloadStatus.classList.remove('hidden');
+            downloadStatus.textContent = 'Detecting acceleration backends...';
+
+            const hasWebGPU = !!navigator.gpu;
+            const hasWebGL2 = (() => { try { const c=document.createElement('canvas'); return !!c.getContext('webgl2'); } catch(_) { return false; } })();
+            console.log('Backend availability:', { hasWebGPU, hasWebGL2 });
+
+            // Attempt order: transformers webgpu -> transformers webgl -> webllm -> transformers wasm
+            const modelLoadErrors = [];
+            let validatedModelCandidates = null;
+            async function preflightModels() {
+                if (validatedModelCandidates) return validatedModelCandidates;
+                validatedModelCandidates = [];
+                appendDiagnostic('Preflight HEAD validation for models...');
+                for (const modelId of TRANSFORMERS_MODEL_CANDIDATES) {
+                    const cfgUrl = `${env.remoteURL}/${modelId}/resolve/main/config.json`;
+                    try {
+                        let resp = await fetch(cfgUrl, { method: 'HEAD' });
+                        if (resp.status === 405) { // Method not allowed, try GET minimal
+                            resp = await fetch(cfgUrl, { method: 'GET' });
+                        }
+                        if (resp.ok) {
+                            validatedModelCandidates.push(modelId);
+                            appendDiagnostic(`OK ${modelId}`);
+                        } else {
+                            appendDiagnostic(`Skip ${modelId} (${resp.status})`);
+                        }
+                    } catch (e) {
+                        appendDiagnostic(`Skip ${modelId} (error: ${e.message})`);
+                    }
+                }
+                if (validatedModelCandidates.length === 0) {
+                    appendDiagnostic('No valid models after preflight.');
+                }
+                return validatedModelCandidates;
+            }
+            async function tryTransformers(deviceTag) {
+                const candidates = await preflightModels();
+                for (const modelId of candidates) {
+                    try {
+                        downloadStatus.textContent = `Loading ${modelId} (${deviceTag})...`;
+                        const opts = { quantized: true };
+                        opts.device = deviceTag.startsWith('web') ? 'gpu' : (deviceTag === 'wasm' ? 'cpu' : 'cpu');
+                        textGenPipeline = await pipeline('text-generation', modelId, opts);
+                        chatBackend = `transformers-${deviceTag}`;
+                        chosenTransformersModel = modelId;
+                        console.log(`Loaded transformers model '${modelId}' on ${deviceTag}`);
+                        return true;
+                    } catch (e) {
+                        const msg = (e?.message || '').toLowerCase();
+                        let short = e.message;
+                        if (msg.includes('unauthorized')) {
+                            short += ' (Likely gated model; set window.HF_TOKEN before loading or choose an open model)';
+                        } else if (msg.includes('404')) {
+                            short += ' (Resource not found; if self-hosting assets, ensure files exist)';
+                        }
+                        modelLoadErrors.push({ device: deviceTag, model: modelId, error: short });
+                        appendDiagnostic(`FAIL ${deviceTag} ${modelId}: ${short}`);
+                        console.warn(`Transformers load failed for ${modelId} on ${deviceTag}:`, e);
+                        // Try next model candidate
+                    }
+                }
+                return false; // none loaded
+            }
+
+            let initialized = false;
+            const userPref = backendSelect.value; // may guide attempt ordering
+            const attemptOrder = (() => {
+                const base = ['transformers-webgpu','transformers-webgl','webllm','transformers-wasm'];
+                if (base.includes(userPref)) {
+                    return [userPref, ...base.filter(b=>b!==userPref)];
+                }
+                return base;
+            })();
+            appendDiagnostic('Attempt order: ' + attemptOrder.join(' -> '));
+            for (const step of attemptOrder) {
+                if (initialized) break;
+                if (step === 'transformers-webgpu' && hasWebGPU) initialized = await tryTransformers('webgpu');
+                else if (step === 'transformers-webgl' && hasWebGL2) initialized = await tryTransformers('webgl');
+                else if (step === 'webllm' && hasWebGPU && !initialized) {
+                    try {
+                        appendDiagnostic('Trying WebLLM...');
+                        downloadStatus.textContent = 'Loading WebLLM model (WebGPU)...';
+                        engine = new webllm.MLCEngine();
+                        engine.setInitProgressCallback(updateEngineInitProgressCallback);
+                        let selectedModel = null;
+                        const preferredModelPattern = 'TinyLlama';
+                        const availableModels = webllm.prebuiltAppConfig.model_list;
+                        const suitableModels = availableModels.filter(m => m.model_id.toLowerCase().includes(preferredModelPattern.toLowerCase()) && (m.model_id.includes('q4f16_1-MLC') || m.model_id.includes('q4f32_1-MLC')) && m.model_id.includes('Instruct'));
+                        if (suitableModels.length > 0) { selectedModel = suitableModels[0].model_id; } else {
+                            const fb = ['TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC','Qwen2.5-0.5B-Instruct-q4f16_1-MLC','gemma-2b-it-q4f16_1-MLC','Phi-3.5-mini-instruct-q4f16_1-MLC'];
+                            for (const id of fb) { if (availableModels.find(m => m.model_id === id)) { selectedModel = id; break; } }
+                        }
+                        if (!selectedModel) throw new Error('No WebLLM model found');
+                        await engine.reload(selectedModel, { temperature: 0.7, top_p: 0.9 });
+                        chatBackend = 'webllm';
+                        initialized = true;
+                        appendDiagnostic('WebLLM loaded: ' + selectedModel);
+                    } catch (e) {
+                        appendDiagnostic('WebLLM failed: ' + e.message);
+                        console.warn('WebLLM load failed:', e);
+                    }
+                } else if (step === 'transformers-wasm' && !initialized) {
+                    initialized = await tryTransformers('wasm');
+                }
+            }
+
+            // WebLLM attempt (only if not already have transformers GPU/WebGL and WebGPU present)
+            if (!initialized && hasWebGPU) {
+                try {
+                    downloadStatus.textContent = 'Loading WebLLM model (WebGPU)...';
+                    engine = new webllm.MLCEngine();
+                    engine.setInitProgressCallback(updateEngineInitProgressCallback);
+                    let selectedModel = null;
+                    const preferredModelPattern = 'TinyLlama';
+                    const availableModels = webllm.prebuiltAppConfig.model_list;
+                    const suitableModels = availableModels.filter(m => m.model_id.toLowerCase().includes(preferredModelPattern.toLowerCase()) && (m.model_id.includes('q4f16_1-MLC') || m.model_id.includes('q4f32_1-MLC')) && m.model_id.includes('Instruct'));
+                    if (suitableModels.length > 0) { selectedModel = suitableModels[0].model_id; } else {
+                        const fb = ['TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC','Qwen2.5-0.5B-Instruct-q4f16_1-MLC','gemma-2b-it-q4f16_1-MLC','Phi-3.5-mini-instruct-q4f16_1-MLC'];
+                        for (const id of fb) { if (availableModels.find(m => m.model_id === id)) { selectedModel = id; break; } }
+                    }
+                    if (!selectedModel) throw new Error('No WebLLM model found');
+                    await engine.reload(selectedModel, { temperature: 0.7, top_p: 0.9 });
+                    chatBackend = 'webllm';
+                    initialized = true;
+                    console.log('Loaded WebLLM model:', selectedModel);
+                } catch (e) {
+                    console.warn('WebLLM load failed:', e);
+                }
+            }
+
+            // Final fallback: transformers wasm (CPU)
+            if (!initialized) {
+                downloadStatus.textContent = 'All model backend attempts failed. See diagnostics.';
+                activeBackendLabel.textContent = 'backend: failed';
+                diagnosticsEl.classList.add('show');
+                appendDiagnostic('FINAL: All attempts failed. Provide HF token if 401, or pick smaller model.');
+                return;
+            }
+
+            // Embeddings (shared)
+            try {
+                downloadStatus.textContent = 'Loading embedding model...';
+                embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+                for (const table of rawSqlSchema) {
+                    const summaryOutput = await embedder(table.summary, { pooling: 'mean', normalize: true });
+                    miniTableIndexEmbeddings.push({ tableId: table.name, text: table.summary, embedding: summaryOutput.data });
+                    for (let i = 0; i < table.details.length; i++) {
+                        const chunkText = table.details[i];
+                        const chunkOutput = await embedder(chunkText, { pooling: 'mean', normalize: true });
+                        detailedSchemaEmbeddings.push({ tableId: table.name, chunkId: `${table.name}_chunk_${i}`, text: chunkText, embedding: chunkOutput.data });
+                    }
+                }
+            } catch (e) {
+                downloadStatus.textContent = 'Embedding init failed: ' + e.message;
+                console.error('Embedding init error:', e);
+                return;
+            }
+
+            // Ready UI
+            const backendLabel = chatBackend || 'unknown';
+            const slow = backendLabel.includes('wasm');
+            sendButton.disabled = false;
+            userInput.disabled = false;
+            userInput.setAttribute('placeholder', slow ? 'Type (CPU fallback, slower)...' : 'Type a message...');
+            if (chosenTransformersModel) {
+                appendMessage({ role: 'system', content: `AI (${backendLabel}/${chosenTransformersModel}): Ready. Ask about the SQL schema. ${slow ? 'Consider smaller model ('+SMALLER_MODEL_HINT+') for speed.' : ''}` });
+                downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
+                activeBackendLabel.textContent = `backend: ${backendLabel}`;
+            } else if (backendLabel === 'webllm') {
+                appendMessage({ role: 'system', content: `AI (${backendLabel}): Ready. Ask about the SQL schema.` });
+                downloadStatus.textContent = 'Models loaded (' + backendLabel + ').';
+                activeBackendLabel.textContent = `backend: ${backendLabel}`;
+            }
+        }
+
+
+        // Function to handle sending a message - MODIFIED FOR LLM-DRIVEN RAG
+    async function onMessageSend() {
+            const input = userInput.value.trim();
+            if (input.length === 0) {
+                return;
+            }
+
+            // Add user message to UI
+            const userMessage = { content: input, role: "user" };
+            messages.push(userMessage); // Add to conversation history
+            appendMessage(userMessage);
+
+            userInput.value = "";
+            sendButton.disabled = true;
+            userInput.setAttribute("placeholder", "Thinking and possibly looking up schema...");
+
+            // Temporarily append a placeholder for AI response
+            const aiMessagePlaceholder = { content: "typing...", role: "assistant" };
+            appendMessage(aiMessagePlaceholder, true); // Mark as streaming message for potential update
+
+            let fullAssistantResponse = "";
+            chatStats.classList.add("hidden");
+
+            console.log('Messages ', messages);
+
+            try {
+                if (chatBackend === 'webllm') {
+                    // Original WebLLM two-pass tool invocation logic
+                    const initialCompletion = await engine.chat.completions.create({
+                        messages: messages,
+                        stream: false,
+                        temperature: 0.7,
+                        top_p: 0.9,
+                    });
+                    let llmFirstResponseContent = initialCompletion.choices?.[0]?.message?.content || "";
+                    let finalResponseContent = "";
+                    if (skipRagCheckbox.checked) {
+                        appendDiagnostic('Skip RAG mode: using first LLM response directly.');
+                        finalResponseContent = llmFirstResponseContent;
+                        updateLastAssistantMessage(finalResponseContent);
+                    } else {
+                        let parsedAction = null;
+                        try { parsedAction = JSON.parse(llmFirstResponseContent); } catch (_) {}
+                        if (parsedAction && parsedAction.action === "lookup_schema_info" && parsedAction.query) {
+                            appendDiagnostic("RAG lookup requested by model: " + parsedAction.query);
+                            updateLastAssistantMessage("🔎 Searching schema for: " + parsedAction.query);
+                            messages.push({ role: "assistant", content: llmFirstResponseContent });
+                            const retrievedContext = await performRagLookup(parsedAction.query);
+                            if (retrievedContext) {
+                                const toolOutputMessage = `Here is the requested schema information:\n\`\`\`\n${retrievedContext}\n\`\`\`\nPlease use this information to answer the user's original question: "${input}"`;
+                                messages.push({ role: "user", content: toolOutputMessage });
+                                updateLastAssistantMessage("🧠 Processing with retrieved info...");
+                                const finalCompletion = await engine.chat.completions.create({
+                                    messages: messages,
+                                    stream: true,
+                                    temperature: 0.7,
+                                    top_p: 0.9,
+                                });
+                                for await (const chunk of finalCompletion) {
+                                    const curDelta = chunk.choices?.[0]?.delta.content;
+                                    if (curDelta) {
+                                        fullAssistantResponse += curDelta;
+                                        updateLastAssistantMessage(fullAssistantResponse);
+                                    }
+                                }
+                                finalResponseContent = fullAssistantResponse;
+                            } else {
+                                finalResponseContent = "No relevant context.";
+                                updateLastAssistantMessage(finalResponseContent);
+                            }
+                        } else {
+                            finalResponseContent = llmFirstResponseContent;
+                            updateLastAssistantMessage(finalResponseContent);
+                        }
+                    }
+                    messages.push({ content: finalResponseContent, role: 'assistant' });
+                    const usageText = await engine.runtimeStatsText();
+                    chatStats.classList.remove('hidden');
+                    chatStats.textContent = usageText;
+                } else if (chatBackend && chatBackend.startsWith('transformers')) {
+                    // Fallback CPU flow: single pass with RAG context (no tool JSON handshake to save latency)
+                    updateLastAssistantMessage('🧠 Gathering relevant schema context...');
+                    let ragContext = null;
+                    if (!skipRagCheckbox.checked) ragContext = await performRagLookup(input);
+                    const prompt = skipRagCheckbox.checked
+                        ? `${systemMessageContent}\n\nUser question: ${input}\n\nAnswer:`
+                        : `${systemMessageContent}\n\nUser question: ${input}\n\nRelevant schema context:\n${ragContext || 'No relevant context.'}\n\nAnswer:`;
+                    updateLastAssistantMessage(`✍️ Generating answer (${chatBackend}${chosenTransformersModel? '/' + chosenTransformersModel: ''})...`);
+                    let streamedAnswer = '';
+                    try {
+                        const result = await textGenPipeline(prompt, {
+                            max_new_tokens: 220,
+                            temperature: 0.7,
+                            top_p: 0.9,
+                            repetition_penalty: 1.05,
+                            callback_function: (data) => {
+                                if (data?.token?.text) {
+                                    streamedAnswer += data.token.text;
+                                    // Avoid dumping the entire prompt back (strip if echo)
+                                    const splitIdx = streamedAnswer.lastIndexOf('Answer:');
+                                    const display = splitIdx !== -1 ? streamedAnswer.slice(splitIdx + 7).trimStart() : streamedAnswer;
+                                    updateLastAssistantMessage(display);
+                                }
+                            }
+                        });
+                        // Final extraction (if callback incomplete)
+                        let finalText;
+                        if (Array.isArray(result)) {
+                            finalText = result[0]?.generated_text || streamedAnswer;
+                        } else {
+                            finalText = result.generated_text || streamedAnswer;
+                        }
+                        const answer = (() => {
+                            const parts = finalText.split('Answer:');
+                            if (parts.length > 1) return parts.slice(1).join('Answer:').trim();
+                            return finalText.replace(prompt,'').trim();
+                        })();
+                        updateLastAssistantMessage(answer);
+                        messages.push({ content: answer, role: 'assistant' });
+                    } catch(genErr) {
+                        updateLastAssistantMessage('Generation error: ' + genErr.message);
+                        appendDiagnostic('Generation error: ' + genErr.stack);
+                    }
+                    chatStats.classList.add('hidden');
+                } else {
+                    updateLastAssistantMessage('No active backend. Initialization error.');
+                }
+            } catch (error) {
+                updateLastAssistantMessage(`Error: ${error.message}`);
+                console.error('Error during chat handling:', error);
+                appendDiagnostic('Chat error: ' + error.stack);
+            } finally {
+                sendButton.disabled = false;
+                userInput.disabled = false;
+                const slow = chatBackend && chatBackend.endsWith('wasm');
+                userInput.setAttribute('placeholder', slow ? 'Type (CPU fallback, slower)...' : 'Type a message...');
+                currentAssistantMessageElement = null;
+            }
+        }
+
+        // Diagnostics helper
+        function appendDiagnostic(line) {
+            const ts = new Date().toISOString().split('T')[1].replace('Z','');
+            diagnosticsEl.textContent += `[${ts}] ${line}\n`;
+            diagnosticsEl.scrollTop = diagnosticsEl.scrollHeight;
+        }
+
+        // Control events
+        applyTokenBtn.addEventListener('click', () => {
+            const raw = prompt('Enter HF token (starts with hf_). This will be stored locally (clearable).');
+            if (raw && raw.startsWith('hf_')) {
+                localStorage.setItem('HF_TOKEN', raw);
+                window.location.reload();
+            }
+        });
+        applyModelsBtn.addEventListener('click', () => {
+            const raw = modelCandidatesInput.value.trim();
+            if (!raw) return;
+            localStorage.setItem('MODEL_CANDIDATES', raw);
+            window.location.reload();
+        });
+        forceReloadBtn.addEventListener('click', () => window.location.reload());
+        toggleDiagBtn.addEventListener('click', () => diagnosticsEl.classList.toggle('show'));
+
+            // --- Dynamic Trial Models Discovery (tokenless) ---
+            async function discoverOpenSmallModels(maxModels = 6) {
+                // Curated base list of realistically loadable tokenless models published with ONNX/TFJS weights.
+                const CURATED = [
+                    'Xenova/gpt2',
+                    'Xenova/distilgpt2',
+                    'Xenova/phi-2',
+                    'Xenova/TinyLlama-1.1B-Chat-v1.0'
+                ];
+                const archWhitelist = [
+                    'GPT2LMHeadModel',
+                    'PhiForCausalLM',
+                    'LlamaForCausalLM',
+                    'MistralForCausalLM',
+                    'TinyLlamaForCausalLM'
+                ];
+                const accepted = [];
+                async function fetchConfig(modelId) {
+                    const url = `${env.remoteURL}/${modelId}/resolve/main/config.json`;
+                    try {
+                        const resp = await fetch(url, { headers:{ 'Accept':'application/json' } });
+                        if (!resp.ok) throw new Error(resp.status+ ' ' + resp.statusText);
+                        return await resp.json();
+                    } catch (e) {
+                        appendDiagnostic('Config fail '+modelId+': '+e.message);
+                        return null;
+                    }
+                }
+                for (const m of CURATED) {
+                    if (accepted.length >= maxModels) break;
+                    const cfg = await fetchConfig(m);
+                    if (!cfg) continue;
+                    const archs = cfg.architectures || [];
+                    const ok = archs.some(a => archWhitelist.includes(a));
+                    if (!ok) {
+                        appendDiagnostic('Skip '+m+' (arch '+archs.join('/')+' not whitelisted)');
+                        continue;
+                    }
+                    // Rough size gating: reject if hidden_size * n_layer heuristic too large (> ~4B tokens weight proxy)
+                    const hs = cfg.hidden_size || cfg.n_embd || 0;
+                    const nl = cfg.num_hidden_layers || cfg.n_layer || 0;
+                    if (hs && nl && hs * nl > 20000) { // heuristic threshold
+                        appendDiagnostic('Skip '+m+' (heuristic size too large hs*nl='+hs*nl+')');
+                        continue;
+                    }
+                    accepted.push(m);
+                }
+                if (accepted.length === 0) {
+                    appendDiagnostic('Discovery empty; using minimal fallback list.');
+                    accepted.push('Xenova/gpt2','Xenova/distilgpt2');
+                }
+                return accepted.slice(0, maxModels);
+            }
+
+            trialModelsBtn.addEventListener('click', async () => {
+                trialModelsBtn.disabled = true;
+                const TRIAL_PROMPT = 'Do planes fly higher than bees?';
+                // Create a live-updating system message
+                const liveHeader = '### Model Trials (live, no token)';
+                appendMessage({ role: 'system', content: liveHeader + '\nStarting discovery...' });
+                const liveEl = chatBox.lastElementChild; // system container
+                const lines = [liveHeader, 'Starting discovery...'];
+                const flush = () => { liveEl.textContent = lines.join('\n'); };
+                const addLine = (l) => { lines.push(l); flush(); };
+                const yieldUI = async () => new Promise(r=>requestAnimationFrame(r));
+                function withTimeout(promise, ms, label) {
+                    return Promise.race([
+                        promise,
+                        new Promise((_, rej) => setTimeout(()=>rej(new Error(label + ' timeout after '+ms+'ms')), ms))
+                    ]);
+                }
+                appendDiagnostic('Trial: starting discovery...');
+                let discovered = [];
+                try {
+                    discovered = await discoverOpenSmallModels(10);
+                } catch(e) {
+                    appendDiagnostic('Discovery error: ' + e.message);
+                    addLine('Discovery error: ' + e.message);
+                }
+                if (!discovered.length) {
+                    addLine('No models discovered dynamically. Using static fallbacks.');
+                    discovered = ['Xenova/gpt2','Xenova/distilgpt2'];
+                }
+                const baseline = ['Xenova/gpt2','Xenova/distilgpt2'];
+                const ordered = baseline.concat(discovered.filter(m=>!baseline.includes(m)));
+                const MODELS = ordered.slice(0,6);
+                addLine('Models to try: ' + MODELS.join(', '));
+                appendDiagnostic('Trial: Models -> ' + discovered.join(', '));
+                const collected = [];
+                try {
+                    for (const modelId of MODELS) {
+                        let loadTime='-', genTime='-', snippet='', error=null;
+                        const t0 = performance.now();
+                        addLine(`Loading ${modelId} ...`);
+                        flush();
+                        try {
+                            const pipe = await withTimeout(pipeline('text-generation', modelId, { quantized: true }), 20000, 'load');
+                            const t1 = performance.now();
+                            const out = await withTimeout(pipe(TRIAL_PROMPT, { max_new_tokens: 30, temperature: 0.7 }), 12000, 'gen');
+                            const t2 = performance.now();
+                            loadTime = ((t1-t0)/1000).toFixed(2)+'s';
+                            genTime = ((t2-t1)/1000).toFixed(2)+'s';
+                            const full = Array.isArray(out) ? (out[0]?.generated_text||'') : (out.generated_text||'');
+                            snippet = full.trim().slice(0,200).replace(/\n+/g,' ') || '(empty)';
+                            addLine(`${modelId} ✓ load ${loadTime} gen ${genTime}`);
+                            addLine(`  → ${snippet}`);
+                        } catch(e) {
+                            error = e?.message || String(e);
+                            addLine(`${modelId} ✗ ${error}`);
+                            appendDiagnostic('Trial error '+modelId+': '+error);
+                        }
+                        collected.push({ model:modelId, loadTime, genTime, snippet, error });
+                        await yieldUI();
+                    }
+                } finally {
+                    trialModelsBtn.disabled = false;
+                }
+                addLine('');
+                addLine('### Trial Summary');
+                for (const r of collected) {
+                    if (r.error) {
+                        addLine(`- ${r.model}: ERROR ${r.error}`);
+                    } else {
+                        addLine(`- ${r.model} (Load ${r.loadTime} / Gen ${r.genTime})`);
+                    }
+                }
+                appendDiagnostic('Trial: progress & summary streamed into chat message.');
+            });
+
+        // Event Listeners
+        sendButton.addEventListener("click", onMessageSend);
+        userInput.addEventListener("keypress", (event) => {
+            if (event.key === "Enter" && !sendButton.disabled) {
+                onMessageSend();
+            }
+        });
+
+        // Attempt to reduce ONNX Runtime verbosity (if backend loads onnxruntime-web)
+        async function quietOnnxLogs() {
+            try {
+                const ort = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js');
+                // ort.env.logLevel values: 'verbose'|'info'|'warning'|'error' (or numeric severity)
+                ort.env.logLevel = 'info';
+            } catch (e) {
+                appendDiagnostic('ORT log level not set: ' + e.message);
+            }
+        }
+
+        // Initialize all models (WebLLM and Embedding model) when the page loads
+        document.addEventListener("DOMContentLoaded", () => { quietOnnxLogs(); initializeModels(); });
+    </script>
+</body>
+</html>
