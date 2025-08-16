@@ -1,4 +1,3 @@
-
 // @ts-check
 
 function chat5() {
@@ -46,7 +45,7 @@ body {
 
   function cleanBody() {
     for (const elem of [...document.body.childNodes]) {
-      if ((elem.tagName || '').toLowerCase() === 'script') continue;
+      if ((/** @type {HTMLElement} */ (elem).tagName || '').toLowerCase() === 'script') continue;
       elem.remove();
     }
   }
@@ -58,62 +57,41 @@ body {
     });
   }
 
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  }
+
 
   async function runBrowser() {
-    alert('runBrowser...');
     window.onerror = (...args) => {
-      alert(
-        args.map(String).join('\n')
-      );
+      alert(args.map(String).join('\n'));
     };
     initHTML();
-    document.querySelector('chat-log').innerText = 'Loading Milkdown...';
+    document.querySelector('.chat-log').innerText = 'Loading Milkdown...';
 
     try {
+      // Dynamically import Milkdown Crepe and CSS
+      const crepeModule = await import('https://esm.sh/@milkdown/crepe');
+      await import('https://esm.sh/@milkdown/crepe/theme/common/style.css');
+      await import('https://esm.sh/@milkdown/crepe/theme/nord.css');
 
-    await Promise.all([
-      loadScript('https://unpkg.com/@milkdown/core/dist/index.umd.js'),
-      loadScript('https://unpkg.com/@milkdown/preset-commonmark/dist/index.umd.js'),
-      loadScript('https://unpkg.com/@milkdown/theme-nord/dist/index.umd.js')
-    ]);
+      // Create editable editor in .chat-input
+      const editableCrepe = new crepeModule.Crepe({
+        root: '.chat-input',
+        defaultValue: '# Hello, Milkdown!'
+      });
+      await editableCrepe.create();
 
-    const { Editor, EditorStatus } = milkdownCore;
-    const { nord } = milkdownThemeNord;
-    const { commonmark } = milkdownPresetCommonmark;
-
-    const editableEditor = await Editor.make()
-      .config((ctx) => {
-        ctx.set(milkdownCore.rootKey, document.querySelector('.chat-input'));
-        ctx.set(milkdownCore.defaultValue, '# Hello, Milkdown!');
-      })
-      .use(nord)
-      .use(commonmark)
-      .create();
-
-    const readonlyEditor = await Editor.make()
-      .config((ctx) => {
-        ctx.set(milkdownCore.rootKey, document.querySelector('.chat-log'));
-        ctx.set(milkdownCore.defaultValue, '');
-        ctx.set(milkdownCore.editorViewOptionsKey, { editable: () => false });
-      })
-      .use(nord)
-      .use(commonmark)
-      .create();
-
-    await outputMessage(readonlyEditor, 'Loaded.');
+      // Create readonly editor in .chat-log
+      const readonlyCrepe = new crepeModule.Crepe({
+        root: '.chat-log',
+        defaultValue: 'Loaded.',
+        editable: false
+      });
+      await readonlyCrepe.create();
     } catch (error) {
+      console.log(error);
       const errorElem = document.createElement('pre');
-      errorElem.innerText = error.stack || String(error);
-      document.querySelector('chat-log').appendChild(errorElem);
+      errorElem.innerText = error.stack || 'ERR ' + error.message;
+      errorElem.style.whiteSpace = 'pre-wrap';
+      document.querySelector('.chat-log').appendChild(errorElem);
     }
   }
 
