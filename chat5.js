@@ -70,8 +70,6 @@ body {
     });
   }
 
-
-
   async function runBrowser() {
     window.onerror = (...args) => {
       alert(args.map(String).join('\n'));
