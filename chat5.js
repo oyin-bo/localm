@@ -77,34 +77,53 @@ body {
     if (chatLog) chatLog.textContent = 'Loading Milkdown...';
 
     try {
-      const kitCore = await import('https://esm.sh/@milkdown/kit@7.15.3/core');
-      const kitCommonmark = await import('https://esm.sh/@milkdown/kit@7.15.3/preset/commonmark');
+      // Import all necessary Milkdown modules with the same version
+      const version = '7.15.3';
+      const [
+        kitCore,
+        kitCommonmark,
+        milkdownCore,
+        milkdownPresetCommonmark,
+        milkdownProse
+      ] = await Promise.all([
+        import(`https://esm.sh/@milkdown/kit@${version}/core`),
+        import(`https://esm.sh/@milkdown/kit@${version}/preset/commonmark`),
+        import(`https://esm.sh/@milkdown/core@${version}`),
+        import(`https://esm.sh/@milkdown/preset-commonmark@${version}`),
+        import(`https://esm.sh/@milkdown/prose@${version}`)
+      ]);
 
       if (chatLog) chatLog.innerHTML = '';
       if (chatInput) chatInput.innerHTML = '';
 
+      // Use context keys from milkdownCore only
+      const { rootCtx, defaultValueCtx, editorViewOptionsCtx } = milkdownCore;
+
       // Create read-only editor in .chat-log
-      const chatLogEditor = await kitCore.Editor.make()
+      const chatLogEditor = await milkdownCore.Editor.make()
         .config((ctx) => {
-          ctx.set(kitCore.rootCtx, chatLog);
-          ctx.set(kitCore.defaultValueCtx, 'Loaded.');
-          ctx.set(kitCore.editorViewOptionsCtx, { editable: () => false });
+          ctx.set(rootCtx, chatLog);
+          ctx.set(defaultValueCtx, 'Loaded.');
+          ctx.set(editorViewOptionsCtx, { editable: () => false });
         })
         .use(kitCommonmark.commonmark)
         .create();
 
       // Create editable editor in .chat-input, no placeholder, starts empty
-      const chatInputEditor = await kitCore.Editor.make()
+      const chatInputEditor = await milkdownCore.Editor.make()
         .config((ctx) => {
-          ctx.set(kitCore.rootCtx, chatInput);
-          ctx.set(kitCore.defaultValueCtx, '');
+          ctx.set(rootCtx, chatInput);
+          ctx.set(defaultValueCtx, '');
         })
         .use(kitCommonmark.commonmark)
         .create();
-      
+
       return {
         kitCore,
         kitCommonmark,
+        milkdownCore,
+        milkdownPresetCommonmark,
+        milkdownProse,
         chatLogEditor,
         chatInputEditor
       };
@@ -117,11 +136,29 @@ body {
     }
   }
 
-  async function outputMessage(chatLogEditor, msg) {
-    await chatLogEditor.action(async (ctx) => {
-      const { commands } = ctx.get(milkdownCore.sliceKey);
-      await commands.insert(msg);
+  async function outputMessage(chatLogEditor, milkdownCore, msg) {
+    await chatLogEditor.action((ctx) => {
+      const view = ctx.get(milkdownCore.editorViewCtx);
+      const parser = ctx.get(milkdownCore.parserCtx);
+      const serializer = ctx.get(milkdownCore.serializerCtx);
+      const state = view.state;
+      // Get current markdown, append new message, and parse
+      const currentMarkdown = serializer(state.doc);
+      const newMarkdown = currentMarkdown ? (currentMarkdown + '\n' + msg) : msg;
+      const doc = parser(newMarkdown);
+      // Use replaceWith and doc.content to avoid TransformError
+      const tr = state.tr.replaceWith(0, state.doc.content.size, doc.content);
+      view.dispatch(tr);
     });
+    // Scroll chat log to bottom (smooth if possible)
+    const chatLogElem = document.querySelector('.chat-log');
+    if (chatLogElem) {
+      if ('scrollTo' in chatLogElem) {
+        chatLogElem.scrollTo({ top: chatLogElem.scrollHeight, behavior: 'smooth' });
+      } else {
+        chatLogElem.scrollTop = chatLogElem.scrollHeight;
+      }
+    }
   }
 
   async function runBrowser() {
@@ -129,11 +166,15 @@ body {
       alert(args.map(String).join('\n'));
     };
     const { kitCore, kitCommonmark, chatLog, chatInput } = initHTML();
-    const { chatLogEditor, chatInputEditor } = await initMilkdown({ chatLog, chatInput });
+    const milkdownResult = await initMilkdown({ chatLog, chatInput });
+    if (!milkdownResult) return;
+    const { chatLogEditor, chatInputEditor, milkdownCore } = milkdownResult;
+
+  outputMessage(chatLogEditor, milkdownCore, 'Milkdown editor component is loaded correctly. Please try typing...');
 
     window.onerror = (...args) => {
       try {
-        outputMessage(chatLogEditor, args.map(String).join('\n'));
+        outputMessage(chatLogEditor, milkdownCore, args.map(String).join('\n'));
       } catch (errorNext) {
         alert(args.map(String).join('\n') + '\n\n' + errorNext.stack);
       }
