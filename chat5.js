@@ -1,5 +1,8 @@
 // @ts-check
 
+
+
+
 function chat5() {
 
   function initHTML() {
@@ -25,6 +28,8 @@ body {
 }
 .chat-input {
   border-top: solid 1px black;
+  display: grid;
+  grid-template: 1fr auto / 1fr;
 }
 .prose-mirror {
   overflow-y: auto;
@@ -54,6 +59,11 @@ body {
     for (const elem of [...ui.children]) {
       document.body.appendChild(elem);
     }
+
+    const chatLog = /** @type {HTMLElement|null} */ (document.querySelector('.chat-log'));
+    const chatInput = /** @type {HTMLElement|null} */ (document.querySelector('.chat-input'));
+
+    return { chatLog, chatInput };
   }
 
   function cleanBody() {
@@ -63,33 +73,18 @@ body {
     }
   }
 
-  async function outputMessage(editor, msg) {
-    await editor.action(async (ctx) => {
-      const { commands } = ctx.get(milkdownCore.sliceKey);
-      await commands.insert(msg);
-    });
-  }
-
-  async function runBrowser() {
-    window.onerror = (...args) => {
-      alert(args.map(String).join('\n'));
-    };
-  initHTML();
-  // Resolve containers once and reuse
-  const chatLog = /** @type {HTMLElement|null} */ (document.querySelector('.chat-log'));
-  const chatInput = /** @type {HTMLElement|null} */ (document.querySelector('.chat-input'));
-  if (chatLog) chatLog.textContent = 'Loading Milkdown...';
-
-  // Clear chat-log and chat-input before initializing editors
-  if (chatLog) chatLog.innerHTML = '';
-  if (chatInput) chatInput.innerHTML = '';
+  async function initMilkdown({ chatLog, chatInput }) {
+    if (chatLog) chatLog.textContent = 'Loading Milkdown...';
 
     try {
-  const kitCore = await import('https://cdn.jsdelivr.net/npm/@milkdown/kit@7.15.3/core/+esm');
-  const kitCommonmark = await import('https://cdn.jsdelivr.net/npm/@milkdown/kit@7.15.3/preset/commonmark/+esm');
+      const kitCore = await import('https://esm.sh/@milkdown/kit@7.15.3/core');
+      const kitCommonmark = await import('https://esm.sh/@milkdown/kit@7.15.3/preset/commonmark');
+
+      if (chatLog) chatLog.innerHTML = '';
+      if (chatInput) chatInput.innerHTML = '';
 
       // Create read-only editor in .chat-log
-      await kitCore.Editor.make()
+      const chatLogEditor = await kitCore.Editor.make()
         .config((ctx) => {
           ctx.set(kitCore.rootCtx, chatLog);
           ctx.set(kitCore.defaultValueCtx, 'Loaded.');
@@ -99,20 +94,50 @@ body {
         .create();
 
       // Create editable editor in .chat-input, no placeholder, starts empty
-      await kitCore.Editor.make()
+      const chatInputEditor = await kitCore.Editor.make()
         .config((ctx) => {
           ctx.set(kitCore.rootCtx, chatInput);
           ctx.set(kitCore.defaultValueCtx, '');
         })
         .use(kitCommonmark.commonmark)
         .create();
+      
+      return {
+        kitCore,
+        kitCommonmark,
+        chatLogEditor,
+        chatInputEditor
+      };
     } catch (error) {
       console.log(error);
       const errorElem = document.createElement('pre');
       errorElem.innerText = error.stack || 'ERR ' + error.message;
       errorElem.style.whiteSpace = 'pre-wrap';
-  (chatLog || document.body).appendChild(errorElem);
+      (chatLog || document.body).appendChild(errorElem);
     }
+  }
+
+  async function outputMessage(chatLogEditor, msg) {
+    await chatLogEditor.action(async (ctx) => {
+      const { commands } = ctx.get(milkdownCore.sliceKey);
+      await commands.insert(msg);
+    });
+  }
+
+  async function runBrowser() {
+    window.onerror = (...args) => {
+      alert(args.map(String).join('\n'));
+    };
+    const { kitCore, kitCommonmark, chatLog, chatInput } = initHTML();
+    const { chatLogEditor, chatInputEditor } = await initMilkdown({ chatLog, chatInput });
+
+    window.onerror = (...args) => {
+      try {
+        outputMessage(chatLogEditor, args.map(String).join('\n'));
+      } catch (errorNext) {
+        alert(args.map(String).join('\n') + '\n\n' + errorNext.stack);
+      }
+    };
   }
 
   if (typeof window !== 'undefined' && typeof window?.alert === 'function'
