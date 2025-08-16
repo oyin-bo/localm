@@ -24,7 +24,7 @@ body {
   grid-template: 1fr / 1fr;
 }
 .chat-input {
-  border-top: 1px solid #4c566a;
+  border-top: solid 1px black;
 }
 .prose-mirror {
   overflow-y: auto;
@@ -37,10 +37,9 @@ body {
 
 .milkdown .ProseMirror {
   min-height: 2em;
-  border: 1px solid #ccc;
-  padding: 8px;
+  padding: 0.6em;
   font-family: inherit;
-  background: #fff;
+  white-space: pre-wrap;
 }
 
 </style>
@@ -88,10 +87,8 @@ body {
   if (chatInput) chatInput.innerHTML = '';
 
     try {
-      /** @type {typeof import('@milkdown/kit/core')} */
-      const kitCore = await import('https://esm.sh/@milkdown/kit/core');
-      /** @type {typeof import('@milkdown/kit/preset/commonmark')} */
-      const kitCommonmark = await import('https://esm.sh/@milkdown/kit/preset/commonmark');
+  const kitCore = await import('https://cdn.jsdelivr.net/npm/@milkdown/kit@7.15.3/core/+esm');
+  const kitCommonmark = await import('https://cdn.jsdelivr.net/npm/@milkdown/kit@7.15.3/preset/commonmark/+esm');
 
       // Create read-only editor in .chat-log
       await kitCore.Editor.make()
@@ -103,11 +100,11 @@ body {
         .use(kitCommonmark.commonmark)
         .create();
 
-      // Create editable editor in .chat-input
+      // Create editable editor in .chat-input, no placeholder, starts empty
       await kitCore.Editor.make()
         .config((ctx) => {
           ctx.set(kitCore.rootCtx, chatInput);
-          ctx.set(kitCore.defaultValueCtx, '# Hello, Milkdown!');
+          ctx.set(kitCore.defaultValueCtx, '');
         })
         .use(kitCommonmark.commonmark)
         .create();
