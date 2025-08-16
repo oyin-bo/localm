@@ -1,6 +1,6 @@
 // @ts-check
 
-import { defaultValueCtx, Editor, editorViewOptionsCtx, rootCtx } from '@milkdown/core';
+import { defaultValueCtx, Editor, editorViewOptionsCtx, rootCtx, editorViewCtx } from '@milkdown/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 
 /**
@@ -39,6 +39,16 @@ export async function initMilkdown({ chatLog, chatInput, inputPlugins = [] }) {
   }
 
   const chatInputEditor = await inputBuilder.create();
+
+  // Auto-focus the input editor's DOM when ready
+  try {
+    chatInputEditor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      if (view && typeof view.focus === 'function') view.focus();
+    });
+  } catch (e) {
+    // Ignore if focusing fails in some environments
+  }
 
   return {
     chatLogEditor,
