@@ -1,11 +1,11 @@
 {
   "name": "localm",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "",
   "main": "chat-full.js",
   "scripts": {
     "build": "esbuild src/index.js --target=es6 --bundle --sourcemap --outfile=./index.js --format=iife --external:fs --external:path --external:child_process --external:ws",
-    "start": "npm run build -- --watch --serve=0.0.0.0:8460 --servedir=. --serve-fallback=index.html",
+    "start": "npm run build -- --watch --serve=0.0.0.0:8812 --servedir=. --serve-fallback=index.html",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

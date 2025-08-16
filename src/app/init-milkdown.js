@@ -3,7 +3,7 @@
 import { defaultValueCtx, Editor, editorViewOptionsCtx, rootCtx } from '@milkdown/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 
-export async function initMilkdown({ chatLog, chatInput }) {
+export async function initMilkdown({ chatLog, chatInput, inputPlugins = [] }) {
   if (chatLog) chatLog.textContent = 'Loading Milkdown...';
 
   if (chatLog) chatLog.innerHTML = '';
@@ -20,13 +20,18 @@ export async function initMilkdown({ chatLog, chatInput }) {
     .create();
 
   // Create editable editor in .chat-input, no placeholder, starts empty
-  const chatInputEditor = await Editor.make()
+  let inputBuilder = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, chatInput);
       ctx.set(defaultValueCtx, '');
     })
-    .use(commonmark)
-    .create();
+    .use(commonmark);
+
+  for (const p of inputPlugins) {
+    inputBuilder = inputBuilder.use(p);
+  }
+
+  const chatInputEditor = await inputBuilder.create();
 
   return {
     chatLogEditor,
