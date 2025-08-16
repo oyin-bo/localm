@@ -18,17 +18,31 @@ body {
   display: grid;
   grid-template: 1fr auto / 1fr;
 }
- 
-.chat-log .milkdown {
-  height: 100%;
+
+.chat-log {
+  display: grid;
+  grid-template: 1fr / 1fr;
 }
-.chat-input .milkdown {
+.chat-input {
   border-top: 1px solid #4c566a;
 }
 .prose-mirror {
-    height: 100%;
-    overflow-y: auto;
+  overflow-y: auto;
 }
+
+.milkdown {
+  display: grid;
+  grid-template: 1fr / 1fr;
+}
+
+.milkdown .ProseMirror {
+  min-height: 2em;
+  border: 1px solid #ccc;
+  padding: 8px;
+  font-family: inherit;
+  background: #fff;
+}
+
 </style>
 `;
 
@@ -68,20 +82,6 @@ body {
   const chatLog = /** @type {HTMLElement|null} */ (document.querySelector('.chat-log'));
   const chatInput = /** @type {HTMLElement|null} */ (document.querySelector('.chat-input'));
   if (chatLog) chatLog.textContent = 'Loading Milkdown...';
-
-    // Inject a placeholder for the missing CSS
-    const style = document.createElement('style');
-    style.innerText = `
-      /* Placeholder: ProseMirror CSS not found on CDN. Add your own for full styling. */
-      .milkdown .ProseMirror {
-        min-height: 200px;
-        border: 1px solid #ccc;
-        padding: 8px;
-        font-family: inherit;
-        background: #fff;
-      }
-    `;
-    document.head.appendChild(style);
 
   // Clear chat-log and chat-input before initializing editors
   if (chatLog) chatLog.innerHTML = '';
