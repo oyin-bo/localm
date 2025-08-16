@@ -63,35 +63,60 @@ body {
     window.onerror = (...args) => {
       alert(args.map(String).join('\n'));
     };
-    initHTML();
-    document.querySelector('.chat-log').innerText = 'Loading Milkdown...';
+  initHTML();
+  // Resolve containers once and reuse
+  const chatLog = /** @type {HTMLElement|null} */ (document.querySelector('.chat-log'));
+  const chatInput = /** @type {HTMLElement|null} */ (document.querySelector('.chat-input'));
+  if (chatLog) chatLog.textContent = 'Loading Milkdown...';
+
+    // Inject a placeholder for the missing CSS
+    const style = document.createElement('style');
+    style.innerText = `
+      /* Placeholder: ProseMirror CSS not found on CDN. Add your own for full styling. */
+      .milkdown .ProseMirror {
+        min-height: 200px;
+        border: 1px solid #ccc;
+        padding: 8px;
+        font-family: inherit;
+        background: #fff;
+      }
+    `;
+    document.head.appendChild(style);
+
+  // Clear chat-log and chat-input before initializing editors
+  if (chatLog) chatLog.innerHTML = '';
+  if (chatInput) chatInput.innerHTML = '';
 
     try {
-      // Dynamically import Milkdown Crepe and CSS
-      const crepeModule = await import('https://esm.sh/@milkdown/crepe');
-      await import('https://esm.sh/@milkdown/crepe/theme/common/style.css');
-      await import('https://esm.sh/@milkdown/crepe/theme/nord.css');
+      /** @type {typeof import('@milkdown/kit/core')} */
+      const kitCore = await import('https://esm.sh/@milkdown/kit/core');
+      /** @type {typeof import('@milkdown/kit/preset/commonmark')} */
+      const kitCommonmark = await import('https://esm.sh/@milkdown/kit/preset/commonmark');
+
+      // Create read-only editor in .chat-log
+      await kitCore.Editor.make()
+        .config((ctx) => {
+          ctx.set(kitCore.rootCtx, chatLog);
+          ctx.set(kitCore.defaultValueCtx, 'Loaded.');
+          ctx.set(kitCore.editorViewOptionsCtx, { editable: () => false });
+        })
+        .use(kitCommonmark.commonmark)
+        .create();
 
       // Create editable editor in .chat-input
-      const editableCrepe = new crepeModule.Crepe({
-        root: '.chat-input',
-        defaultValue: '# Hello, Milkdown!'
-      });
-      await editableCrepe.create();
-
-      // Create readonly editor in .chat-log
-      const readonlyCrepe = new crepeModule.Crepe({
-        root: '.chat-log',
-        defaultValue: 'Loaded.',
-        editable: false
-      });
-      await readonlyCrepe.create();
+      await kitCore.Editor.make()
+        .config((ctx) => {
+          ctx.set(kitCore.rootCtx, chatInput);
+          ctx.set(kitCore.defaultValueCtx, '# Hello, Milkdown!');
+        })
+        .use(kitCommonmark.commonmark)
+        .create();
     } catch (error) {
       console.log(error);
       const errorElem = document.createElement('pre');
       errorElem.innerText = error.stack || 'ERR ' + error.message;
       errorElem.style.whiteSpace = 'pre-wrap';
-      document.querySelector('.chat-log').appendChild(errorElem);
+  (chatLog || document.body).appendChild(errorElem);
     }
   }
 
