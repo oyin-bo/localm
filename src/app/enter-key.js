@@ -1,8 +1,15 @@
 // @ts-check
 
-import { editorViewCtx, parserCtx, serializerCtx, commandsCtx } from '@milkdown/core';
+import {
+  commandsCtx,
+  editorViewCtx,
+  parserCtx,
+  serializerCtx
+} from '@milkdown/core';
 import { $command, $useKeymap } from '@milkdown/utils';
+
 import { outputMessage } from './output-message';
+import { handlePrompt } from './handle-prompt';
 
 export function makeEnterPlugins() {
   // Create a command that sends the current input content to the chat log
@@ -12,10 +19,11 @@ export function makeEnterPlugins() {
       const toMarkdown = ctx.get(serializerCtx);
       const fromMarkdown = ctx.get(parserCtx);
       const markdown = (toMarkdown(view.state.doc) || '').trim();
+
       if (markdown) {
-        const formatted = `user typed:\n> ${markdown.replaceAll('\n', '\n> ')}`;
-        outputMessage(formatted);
+        handlePrompt(markdown);
       }
+
       // Clear input
       const emptyDoc = fromMarkdown('');
       const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, emptyDoc.content);
@@ -35,5 +43,8 @@ export function makeEnterPlugins() {
     },
   });
 
-  return [myEnterCommand, myEnterKeymap];
+  return [
+    myEnterCommand,
+    myEnterKeymap
+  ];
 }

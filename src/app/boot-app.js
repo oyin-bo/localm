@@ -14,7 +14,6 @@ export var chatLogEditor;
 export var chatInputEditor;
 
 
-
 export async function bootApp() {
   const { chatLog, chatInput } = initHTML();
   const { chatLogEditor: chatLogEditorInstance, chatInputEditor: chatInputEditorInstance } = await initMilkdown({
