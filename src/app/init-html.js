@@ -21,8 +21,8 @@ export function initHTML() {
     document.body.appendChild(elem);
   }
 
-  const chatLog = /** @type {HTMLElement|null} */ (document.querySelector('.chat-log'));
-  const chatInput = /** @type {HTMLElement|null} */ (document.querySelector('.chat-input'));
+  const chatLog = /** @type {HTMLElement} */ (document.querySelector('.chat-log'));
+  const chatInput = /** @type {HTMLElement} */ (document.querySelector('.chat-input'));
 
   return { chatLog, chatInput };
 }

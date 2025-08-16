@@ -3,6 +3,13 @@
 import { defaultValueCtx, Editor, editorViewOptionsCtx, rootCtx } from '@milkdown/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 
+/**
+ * @typedef {{ chatLog: HTMLElement, chatInput: HTMLElement, inputPlugins?: any[] }} InitMilkdownOptions
+ */
+
+/**
+ * @param {InitMilkdownOptions} options
+ */
 export async function initMilkdown({ chatLog, chatInput, inputPlugins = [] }) {
   if (chatLog) chatLog.textContent = 'Loading Milkdown...';
 
