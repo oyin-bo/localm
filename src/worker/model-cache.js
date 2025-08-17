@@ -1,6 +1,5 @@
 // @ts-check
 
-import { pipeline } from '@huggingface/transformers';
 import { loadModelCore } from './load-model-core';
 
 export class ModelCache {

@@ -6,6 +6,8 @@ import { initMilkdown } from './init-milkdown';
 import { outputMessage } from './output-message';
 import { workerConnection } from './worker-connection';
 
+import { version } from '../../package.json';
+
 /** @type {import('@milkdown/core').Editor} */
 export var chatLogEditor;
 
@@ -30,5 +32,5 @@ export async function bootApp() {
   });
   chatLogEditor = chatLogEditorInstance;
   chatInputEditor = chatInputEditorInstance;
-  outputMessage('Editor loaded OK.');
+  outputMessage('Editor v' + version + ' loaded OK.');
 }
