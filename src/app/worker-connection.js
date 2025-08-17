@@ -75,7 +75,7 @@ export function workerConnection() {
   async function loadModel(modelName) {
     await workerLoaded;
   const { send } = await workerLoaded;
-  return send({ type: 'loadModel', model: modelName });
+  return send({ type: 'loadModel', modelName });
   }
 
   /**
@@ -85,6 +85,6 @@ export function workerConnection() {
   async function runPrompt(promptText, modelName) {
     await workerLoaded;
   const { send } = await workerLoaded;
-  return send({ type: 'runPrompt', prompt: promptText, model: modelName });
+  return send({ type: 'runPrompt', prompt: promptText, modelName });
   }
 }
