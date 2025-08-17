@@ -2,14 +2,21 @@
 
 import { outputMessage } from './output-message';
 
-export async function handlePrompt(promptMarkdown) {
-  const formatted = `user typed:\n> ${promptMarkdown.replaceAll('\n', '\n> ')}`;
+/**
+ * @param {{
+ *  promptMarkdown: string,
+ *  workerConnection: ReturnType<import('./worker-connection').workerConnection>
+ * }} _
+ */
+export async function handlePrompt({ promptMarkdown, workerConnection }) {
+  const formatted = `**Question:**\n> ${promptMarkdown.replaceAll('\n', '\n> ')}`;
   outputMessage(formatted);
 
-  await new Promise(resolve => setTimeout(resolve, 100));
-
   outputMessage('Processing your request...');
-
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  outputMessage(`This is a simulated response to your prompt [${promptMarkdown.length}].`);
+  try {
+    const promptOutput = await workerConnection.runPrompt(promptMarkdown);
+    outputMessage('**Reply:**\n' + promptOutput);
+  } catch (error) {
+    outputMessage('**Error:** ' + error.message);
+  }
 }

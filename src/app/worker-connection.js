@@ -84,7 +84,7 @@ export function workerConnection() {
    */
   async function runPrompt(promptText, modelName) {
     await workerLoaded;
-  const { send } = await workerLoaded;
-  return send({ type: 'runPrompt', prompt: promptText, modelName });
+    const { send } = await workerLoaded;
+    return send({ type: 'runPrompt', prompt: promptText, modelName });
   }
 }

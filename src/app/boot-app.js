@@ -26,7 +26,7 @@ export async function bootApp() {
   const { chatLogEditor: chatLogEditorInstance, chatInputEditor: chatInputEditorInstance } = await initMilkdown({
     chatLog,
     chatInput,
-    inputPlugins: makeEnterPlugins()
+    inputPlugins: makeEnterPlugins({ workerConnection: worker })
   });
   chatLogEditor = chatLogEditorInstance;
   chatInputEditor = chatInputEditorInstance;

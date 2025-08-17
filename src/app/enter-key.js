@@ -10,7 +10,7 @@ import { $command, $useKeymap } from '@milkdown/utils';
 
 import { handlePrompt } from './handle-prompt';
 
-export function makeEnterPlugins() {
+export function makeEnterPlugins({ workerConnection }) {
   // Create a command that sends the current input content to the chat log
   const myEnterCommand = $command('MyEnterCommand', (ctx) => {
     return () => (state, dispatch) => {
@@ -20,7 +20,7 @@ export function makeEnterPlugins() {
       const markdown = (toMarkdown(view.state.doc) || '').trim();
 
       if (markdown) {
-        handlePrompt(markdown);
+        handlePrompt({ promptMarkdown: markdown, workerConnection });
       }
 
       // Clear input
