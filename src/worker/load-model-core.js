@@ -19,12 +19,13 @@ export async function loadModelCore({
   // via its own callbacks if available.
   const pipe = await pipeline(
     'text-generation',
-    modelName,{
-    device,
-    progress_callback: (progress) => {
-      if (onProgress) onProgress(progress);
-    }
-  });
+    modelName,
+    {
+      device,
+      progress_callback: (progress) => {
+        if (onProgress) onProgress(progress);
+      }
+    });
 
   return pipe;
 }

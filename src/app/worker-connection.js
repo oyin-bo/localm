@@ -33,7 +33,7 @@ export function workerConnection() {
           const msg = ev.data || {};
           if (msg && msg.type === 'ready') {
             ready = true;
-            resolve({ worker: worker, pending, send });
+            resolve({ worker, pending, send });
             return;
           }
 
@@ -41,10 +41,14 @@ export function workerConnection() {
             const id = msg.id;
             const entry = pending.get(id);
             if (!entry) return;
-            pending.delete(id);
-            if (msg.type === 'response') entry.resolve(msg.result);
-            else if (msg.type === 'error') entry.reject(new Error(msg.error));
-            else entry.resolve(msg);
+            if (msg.type === 'response') {
+              pending.delete(id);
+              entry.resolve(msg.result);
+            } else if (msg.type === 'error') {
+              pending.delete(id);
+              entry.reject(new Error(msg.error));
+            }
+            //else entry.resolve(msg);
           }
         });
 
@@ -80,11 +84,12 @@ export function workerConnection() {
 
   /**
    * @param {string} promptText
-   * @param {string} modelName
+   * @param {string} [modelName]
    */
   async function runPrompt(promptText, modelName) {
     await workerLoaded;
     const { send } = await workerLoaded;
-    return send({ type: 'runPrompt', prompt: promptText, modelName });
+    const sendPromise = send({ type: 'runPrompt', prompt: promptText, modelName });
+    return sendPromise;
   }
 }
