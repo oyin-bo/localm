@@ -9,8 +9,8 @@ export class ModelCache {
   backend = undefined;
 
   knownModels = [
-    'Xenova/phi-3-mini-4k-instruct',
     'Xenova/phi-1.5',
+    'Xenova/phi-3-mini-4k-instruct',
     'Xenova/all-MiniLM-L6-v2'
   ];
 
