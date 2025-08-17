@@ -8,7 +8,6 @@ import {
 } from '@milkdown/core';
 import { $command, $useKeymap } from '@milkdown/utils';
 
-import { outputMessage } from './output-message';
 import { handlePrompt } from './handle-prompt';
 
 export function makeEnterPlugins() {

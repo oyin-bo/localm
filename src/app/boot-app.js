@@ -1,11 +1,10 @@
 // @ts-check
 
-import { editorViewCtx, parserCtx, serializerCtx, commandsCtx } from '@milkdown/core';
-import { $command, $useKeymap } from '@milkdown/utils';
+import { makeEnterPlugins } from './enter-key';
 import { initHTML } from './init-html';
 import { initMilkdown } from './init-milkdown';
 import { outputMessage } from './output-message';
-import { makeEnterPlugins } from './enter-key';
+import { workerConnection } from './worker-connection';
 
 /** @type {import('@milkdown/core').Editor} */
 export var chatLogEditor;
@@ -13,9 +12,11 @@ export var chatLogEditor;
 /** @type {import('@milkdown/core').Editor} */
 export var chatInputEditor;
 
+export var worker;
 
 export async function bootApp() {
   const { chatLog, chatInput } = initHTML();
+  worker = workerConnection();
   const { chatLogEditor: chatLogEditorInstance, chatInputEditor: chatInputEditorInstance } = await initMilkdown({
     chatLog,
     chatInput,

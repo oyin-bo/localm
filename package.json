@@ -1,6 +1,6 @@
 {
   "name": "localm",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "",
   "main": "chat-full.js",
   "scripts": {
@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/oyin-bo/localm#readme",
   "dependencies": {
+    "@huggingface/transformers": "^3.7.2",
     "@milkdown/crepe": "^7.15.3",
     "esbuild": "^0.25.9"
   }
