@@ -17,6 +17,12 @@ export var worker;
 export async function bootApp() {
   const { chatLog, chatInput } = initHTML();
   worker = workerConnection();
+  worker.loaded.then(async () => {
+    outputMessage('Models...');
+    const models = await worker.listModels();
+    outputMessage('Available models: ' + models.join(', '));
+  });
+
   const { chatLogEditor: chatLogEditorInstance, chatInputEditor: chatInputEditorInstance } = await initMilkdown({
     chatLog,
     chatInput,

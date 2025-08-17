@@ -23,7 +23,11 @@ export function bootWorker() {
     }
 
     // Minimal in-worker state for later model operations
-    const availableModels = ['dummy-model'];
+    const availableModels = [
+      'Xenova/phi-3-mini-4k-instruct',
+      'Xenova/phi-1.5',
+      'Xenova/all-MiniLM-L6-v2'
+    ];
     let currentModel = null;
 
     // signal ready to main thread

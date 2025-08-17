@@ -6,6 +6,7 @@ export function workerConnection() {
   const workerLoaded = loadWorker();
 
   const connection = {
+    loaded: workerLoaded.then(() => { }),
     listModels,
     loadModel,
     runPrompt
@@ -19,7 +20,7 @@ export function workerConnection() {
     // Build a blob that imports this script and calls bootWorker when executed inside a worker.
     return new Promise((resolve, reject) => {
       try {
-        const scriptUrl = (typeof document !== 'undefined' && (document.currentScript && document.currentScript.src)) ||
+        const scriptUrl = (typeof document !== 'undefined' && (document.currentScript && /** @type {HTMLScriptElement} */(document.currentScript).src)) ||
           (typeof document !== 'undefined' && document.scripts && document.scripts[document.scripts.length - 1] && document.scripts[document.scripts.length - 1].src) ||
           (typeof window !== 'undefined' && window.location && window.location.href) || '';
 
