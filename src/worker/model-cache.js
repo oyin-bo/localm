@@ -22,6 +22,7 @@ export class ModelCache {
    * @param {{
    *  modelName: string
    * }} _
+   * @return {ReturnType<typeof this._loadModelAndStore>}
    */
   getModel({ modelName }) {
     return this.cache.get(modelName) || this._loadModelAndStore({ modelName });

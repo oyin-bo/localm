@@ -66,11 +66,12 @@ function extractText(output) {
     if (!output) return '';
     if (typeof output === 'string') return output;
     if (Array.isArray(output) && output.length > 0) {
-      const el = output[0];
-      if (el.generated_text) return el.generated_text;
-      if (el.text) return el.text;
-      // Some runtimes return an array of strings
-      if (typeof el === 'string') return el;
+      return output.map(el => {
+        if (el.generated_text) return el.generated_text;
+        if (el.text) return el.text;
+        // Some runtimes return an array of strings
+        if (typeof el === 'string') return el;
+      });
     }
     // Fallback: try JSON stringify
     return String(output);
