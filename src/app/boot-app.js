@@ -6,7 +6,7 @@ import { initMilkdown } from './init-milkdown';
 import { outputMessage } from './output-message';
 import { workerConnection } from './worker-connection';
 
-import { version } from '../../package.json';
+import { name, description, version } from '../../package.json';
 
 /** @type {import('@milkdown/core').Editor} */
 export var chatLogEditor;
@@ -20,6 +20,7 @@ export async function bootApp() {
   const { chatLog, chatInput } = initHTML();
   worker = workerConnection();
   worker.loaded.then(async ({ env }) => {
+    document.title = name + ' v' + version + ' t/' + env.version;
     outputMessage(
       'transformers.js\n\n```JSON\n' + JSON.stringify(env, null, 2) + '\n```');
     const models = await worker.listModels();
@@ -33,5 +34,6 @@ export async function bootApp() {
   });
   chatLogEditor = chatLogEditorInstance;
   chatInputEditor = chatInputEditorInstance;
-  outputMessage('Editor v' + version + ' loaded OK.');
+  document.title = name + ' v' + version;
+  outputMessage(description + ' v' + version + ' loaded OK.');
 }
