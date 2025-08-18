@@ -15,7 +15,7 @@ export function bootWorker() {
 
 
   // signal ready to main thread (worker script loaded; model runtime may still be pending)
-  self.postMessage({ type: 'ready' });
+  self.postMessage({ type: 'ready', env: modelCache.env, backend: modelCache.backend });
 
   // handle incoming requests from the UI thread
   self.addEventListener('message', handleMessage);

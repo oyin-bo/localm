@@ -6,7 +6,7 @@ export function workerConnection() {
   const workerLoaded = loadWorker();
 
   const connection = {
-    loaded: workerLoaded.then(() => { }),
+    loaded: workerLoaded.then(worker => ({ env: worker.env })),
     listModels,
     loadModel,
     runPrompt
@@ -33,7 +33,7 @@ export function workerConnection() {
           const msg = ev.data || {};
           if (msg && msg.type === 'ready') {
             ready = true;
-            resolve({ worker, pending, send });
+            resolve({ worker, pending, send, env: msg.env });
             return;
           }
 
@@ -71,15 +71,15 @@ export function workerConnection() {
 
   async function listModels() {
     await workerLoaded;
-  const { send } = await workerLoaded;
-  return send({ type: 'listModels' });
+    const { send } = await workerLoaded;
+    return send({ type: 'listModels' });
   }
 
   /** @param {string} modelName */
   async function loadModel(modelName) {
     await workerLoaded;
-  const { send } = await workerLoaded;
-  return send({ type: 'loadModel', modelName });
+    const { send } = await workerLoaded;
+    return send({ type: 'loadModel', modelName });
   }
 
   /**

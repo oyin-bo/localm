@@ -19,8 +19,9 @@ export var worker;
 export async function bootApp() {
   const { chatLog, chatInput } = initHTML();
   worker = workerConnection();
-  worker.loaded.then(async () => {
-    outputMessage('Models...');
+  worker.loaded.then(async ({ env }) => {
+    outputMessage(
+      'transformers.js\n\n```JSON\n' + JSON.stringify(env, null, 2) + '\n```');
     const models = await worker.listModels();
     outputMessage('Available models: ' + models.join(', '));
   });

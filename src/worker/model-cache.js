@@ -1,5 +1,7 @@
 // @ts-check
 
+import { pipeline, env } from '@huggingface/transformers';
+
 import { loadModelCore } from './load-model-core';
 
 export class ModelCache {
@@ -7,9 +9,11 @@ export class ModelCache {
   /** @type {import('@huggingface/transformers').DeviceType | undefined} */
   backend = undefined;
 
+  env = env;
+
   knownModels = [
-    'Xenova/phi-3-mini-4k-instruct',
     'Xenova/llama2.c-stories15M', // nonsense
+    'Xenova/phi-3-mini-4k-instruct', // huge
     'Xenova/all-MiniLM-L6-v2', // unsupported model type: bert
     'Xenova/phi-1.5', // gated
     'Qwen/Qwen2.5-3B', // cannot be loaded
