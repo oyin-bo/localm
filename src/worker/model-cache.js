@@ -8,8 +8,10 @@ export class ModelCache {
   backend = undefined;
 
   knownModels = [
+    //'microsoft/phi-1_5', // cannot be loaded
+
+    // 'Xenova/phi-3-mini-4k-instruct',
     'Xenova/llama2.c-stories15M', // nonsense
-    'Xenova/phi-3-mini-4k-instruct',
     'Xenova/all-MiniLM-L6-v2', // unsupported model type: bert
     'Xenova/phi-1.5', // gated
     'Qwen/Qwen2.5-3B', // cannot be loaded
@@ -37,13 +39,13 @@ export class ModelCache {
     if (!this.backend) this.backend = detectTransformersBackend();
     // Create a loader promise that will try multiple backends in order.
     const loader = (async () => {
-      const tried = [];
       // candidate order: detected backend first, then common fallbacks
       let candidates = ['webgpu', 'gpu', 'wasm'];
-      candidates = ['gpu', 'wasm'];
+      // candidates = ['gpu', 'wasm'];
       candidates = candidates.slice(candidates.indexOf(this.backend || 'wasm'));
+      candidates = ['auto'];
 
-      let lastErr = null;
+      let errs = [];
       console.log('Trying candidates ', candidates);
       for (const device of candidates) {
         try {
@@ -57,14 +59,15 @@ export class ModelCache {
           return model;
         } catch (err) {
           console.log('Failed ', device, ' ', err);
-          tried.push({ device, error: err.stack || String(err) });
-          lastErr = err;
+          errs.push(device + ': ' + err.stack);
           // continue to next candidate
         }
       }
 
       // none succeeded
-      const err = new Error(`no available backend found. attempts=${JSON.stringify(tried)}; last=${String(lastErr)}`);
+      const err = new Error(
+        'Backends failed: ' + JSON.stringify(candidates) + ', errors:\n\n' + 
+        errs.join('\n\n'));
       throw err;
     })();
 
