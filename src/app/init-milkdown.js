@@ -1,16 +1,33 @@
 // @ts-check
 
-import { defaultValueCtx, Editor, editorViewOptionsCtx, rootCtx, editorViewCtx } from '@milkdown/core';
+import {
+  defaultValueCtx,
+  Editor,
+  editorViewCtx,
+  editorViewOptionsCtx,
+  rootCtx
+} from '@milkdown/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
+import { slashFactory } from "@milkdown/plugin-slash";
 
 /**
- * @typedef {{ chatLog: HTMLElement, chatInput: HTMLElement, inputPlugins?: any[] }} InitMilkdownOptions
+ * @typedef {{
+ *  chatLog: HTMLElement,
+ *  chatInput: HTMLElement,
+ *  inputPlugins?: any[],
+ *  onSlashCommand?: (command: string) => void | boolean | Promise<void | boolean>
+ * }} InitMilkdownOptions
  */
 
 /**
  * @param {InitMilkdownOptions} options
  */
-export async function initMilkdown({ chatLog, chatInput, inputPlugins = [] }) {
+export async function initMilkdown({
+  chatLog,
+  chatInput,
+  inputPlugins = [],
+  onSlashCommand
+}) {
   if (chatLog) chatLog.textContent = 'Loading Milkdown...';
 
   if (chatLog) chatLog.innerHTML = '';
