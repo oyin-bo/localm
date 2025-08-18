@@ -8,9 +8,7 @@ export class ModelCache {
   backend = undefined;
 
   knownModels = [
-    //'microsoft/phi-1_5', // cannot be loaded
-
-    // 'Xenova/phi-3-mini-4k-instruct',
+    'Xenova/phi-3-mini-4k-instruct',
     'Xenova/llama2.c-stories15M', // nonsense
     'Xenova/all-MiniLM-L6-v2', // unsupported model type: bert
     'Xenova/phi-1.5', // gated
@@ -43,7 +41,7 @@ export class ModelCache {
       let candidates = ['webgpu', 'gpu', 'wasm'];
       // candidates = ['gpu', 'wasm'];
       candidates = candidates.slice(candidates.indexOf(this.backend || 'wasm'));
-      candidates = ['auto'];
+      candidates = ['auto', 'wasm'];
 
       let errs = [];
       console.log('Trying candidates ', candidates);
