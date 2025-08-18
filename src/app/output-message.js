@@ -27,7 +27,7 @@ export function outputMessage(msg) {
     view.dispatch(tr);
   });
   // Scroll chat log to bottom (smooth if possible)
-  const chatLogElem = document.querySelector('.chat-log');
+  const chatLogElem = document.querySelector('.chat-log .milkdown .ProseMirror');
   if (chatLogElem) {
     if (typeof chatLogElem.scrollTo === 'function') {
       chatLogElem.scrollTo({ top: chatLogElem.scrollHeight, behavior: 'smooth' });
