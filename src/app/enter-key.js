@@ -47,3 +47,38 @@ export function makeEnterPlugins({ workerConnection }) {
     myEnterKeymap
   ];
 }
+
+/**
+ * Setup Enter key handling for Crepe editor
+ * @param {import('@milkdown/crepe').Crepe} crepeInput 
+ * @param {ReturnType<import('./worker-connection').workerConnection>} workerConnection 
+ */
+export function setupCrepeEnterKey(crepeInput, workerConnection) {
+  // Add Enter key handling through Crepe's underlying editor
+  crepeInput.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    if (view.dom) {
+      view.dom.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+          e.preventDefault();
+          
+          // Get markdown using the underlying editor's serializer
+          const toMarkdown = ctx.get(serializerCtx);
+          const markdown = toMarkdown(view.state.doc).trim();
+          
+          if (markdown) {
+            handlePrompt({ promptMarkdown: markdown, workerConnection });
+            // Clear the input
+            const fromMarkdown = ctx.get(parserCtx);
+            const emptyDoc = fromMarkdown('');
+            const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, emptyDoc.content);
+            view.dispatch(tr);
+          }
+          
+          return true;
+        }
+        return false;
+      });
+    }
+  });
+}

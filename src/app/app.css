@@ -9,6 +9,7 @@ body {
   border: none;
   display: grid;
   grid-template: 1fr auto / 1fr;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 .milkdown {
@@ -23,6 +24,166 @@ body {
     outline: none;
     margin: 0;
   }
+}
+
+/* Basic Crepe styling */
+.editor {
+  display: flex;
+  flex-direction: column;
+  background: white;
+}
+
+.editor .ProseMirror {
+  outline: none;
+  padding: 16px;
+  min-height: 100px;
+}
+
+.editor .ProseMirror p {
+  margin: 8px 0;
+}
+
+.editor .ProseMirror h1,
+.editor .ProseMirror h2,
+.editor .ProseMirror h3,
+.editor .ProseMirror h4,
+.editor .ProseMirror h5,
+.editor .ProseMirror h6 {
+  margin: 12px 0 8px 0;
+  font-weight: bold;
+}
+
+.editor .ProseMirror h1 { font-size: 2em; }
+.editor .ProseMirror h2 { font-size: 1.5em; }
+.editor .ProseMirror h3 { font-size: 1.25em; }
+
+.editor .ProseMirror ul,
+.editor .ProseMirror ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.editor .ProseMirror li {
+  margin: 4px 0;
+}
+
+/* Task list styling */
+.editor .ProseMirror li[data-task-list-item] {
+  list-style: none;
+  margin-left: -24px;
+  padding-left: 24px;
+}
+
+.editor .ProseMirror li[data-task-list-item]:before {
+  content: "☐ ";
+  margin-right: 8px;
+  user-select: none;
+}
+
+.editor .ProseMirror li[data-task-list-item][data-checked="true"]:before {
+  content: "☑ ";
+}
+
+.editor .ProseMirror blockquote {
+  margin: 8px 0;
+  padding-left: 16px;
+  border-left: 4px solid #e0e0e0;
+  color: #666;
+}
+
+.editor .ProseMirror pre {
+  background: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.editor .ProseMirror code {
+  background: #f0f0f0;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: "Monaco", "Courier New", monospace;
+}
+
+/* Block handle styling */
+.milkdown-block-handle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.milkdown-block-handle .operation-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+}
+
+.milkdown-block-handle .operation-item:hover {
+  background: #f0f0f0;
+}
+
+/* Slash menu styling */
+.milkdown-slash-menu {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  max-width: 300px;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: inherit;
+}
+
+.milkdown-slash-menu .menu-groups {
+  padding: 8px;
+}
+
+.milkdown-slash-menu .menu-group h6 {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #666;
+  margin: 8px 0 4px 0;
+  font-weight: 600;
+}
+
+.milkdown-slash-menu .menu-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.milkdown-slash-menu .menu-group li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 2px 0;
+}
+
+.milkdown-slash-menu .menu-group li:hover {
+  background: #f0f0f0;
+}
+
+.milkdown-slash-menu .menu-group li.active {
+  background: #e6f3ff;
+}
+
+.milkdown-slash-menu .menu-group li span {
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .chat-log {
@@ -55,5 +216,18 @@ body {
       max-height: 20vh;
       overflow: auto;
     }
+  }
+
+  /* Crepe-specific styling for input */
+  .editor {
+    max-height: 20vh;
+    overflow: auto;
+    background: white;
+  }
+
+  .editor .ProseMirror {
+    padding: 0.6em 1em;
+    max-height: 20vh;
+    overflow: auto;
   }
 }

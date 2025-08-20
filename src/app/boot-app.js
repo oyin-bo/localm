@@ -1,6 +1,6 @@
 // @ts-check
 
-import { makeEnterPlugins } from './enter-key';
+import { makeEnterPlugins, setupCrepeEnterKey } from './enter-key';
 import { initHTML } from './init-html';
 import { initMilkdown } from './init-milkdown';
 import { outputMessage } from './output-message';
@@ -27,13 +27,21 @@ export async function bootApp() {
     outputMessage('Available models: ' + models.join(', '));
   });
 
-  const { chatLogEditor: chatLogEditorInstance, chatInputEditor: chatInputEditorInstance } = await initMilkdown({
+  const { 
+    chatLogEditor: chatLogEditorInstance, 
+    chatInputEditor: chatInputEditorInstance,
+    crepeInput 
+  } = await initMilkdown({
     chatLog,
     chatInput,
     inputPlugins: makeEnterPlugins({ workerConnection: worker })
   });
+  
   chatLogEditor = chatLogEditorInstance;
   chatInputEditor = chatInputEditorInstance;
+  
+  // Setup Enter key handling for the Crepe input editor
+  setupCrepeEnterKey(crepeInput, worker);
   document.title = name + ' v' + version;
   outputMessage(description + ' v' + version + ' loaded OK.');
 }

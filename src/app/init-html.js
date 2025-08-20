@@ -1,6 +1,8 @@
 // @ts-check
 
 import './app.css';
+// Import only the basic Crepe CSS, avoiding LaTeX/math dependencies
+import '@milkdown/crepe/theme/frame.css';
 
 import { cleanBody } from './clean-body';
 

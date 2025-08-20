@@ -9,6 +9,7 @@ import {
 } from '@milkdown/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { slashFactory } from "@milkdown/plugin-slash";
+import { Crepe } from '@milkdown/crepe';
 
 /**
  * @typedef {{
@@ -25,7 +26,7 @@ import { slashFactory } from "@milkdown/plugin-slash";
 export async function initMilkdown({
   chatLog,
   chatInput,
-  inputPlugins = [],
+  inputPlugins = [], // Keep for backward compatibility but not used for Crepe
   onSlashCommand
 }) {
   if (chatLog) chatLog.textContent = 'Loading Milkdown...';
@@ -43,23 +44,37 @@ export async function initMilkdown({
     .use(commonmark)
     .create();
 
-  // Create editable editor in .chat-input, no placeholder, starts empty
-  let inputBuilder = Editor.make()
-    .config((ctx) => {
-      ctx.set(rootCtx, chatInput);
-      ctx.set(defaultValueCtx, '');
-    })
-    .use(commonmark);
+  // Create editable Crepe editor in .chat-input
+  const crepeInput = new Crepe({
+    root: chatInput,
+    defaultValue: '',
+    features: {
+      [Crepe.Feature.BlockEdit]: false, // Disable slash menu and block editing
+      [Crepe.Feature.Placeholder]: true,
+      [Crepe.Feature.Cursor]: true,
+      [Crepe.Feature.ListItem]: true,
+      [Crepe.Feature.CodeMirror]: true,
+      // Disable features not needed for chat input
+      [Crepe.Feature.ImageBlock]: false,
+      [Crepe.Feature.Table]: false,
+      [Crepe.Feature.Latex]: false,
+      [Crepe.Feature.Toolbar]: false,
+      [Crepe.Feature.LinkTooltip]: false
+    },
+    featureConfigs: {
+      [Crepe.Feature.Placeholder]: {
+        text: 'Start typing...',
+        mode: 'block'
+      }
+    }
+  });
 
-  for (const p of inputPlugins) {
-    inputBuilder = inputBuilder.use(p);
-  }
+  const chatInputEditor = await crepeInput.create();
 
-  const chatInputEditor = await inputBuilder.create();
-
-  // Auto-focus the input editor's DOM when ready
+  // Auto-focus the Crepe input editor when ready
   try {
-    chatInputEditor.action((ctx) => {
+    // Crepe exposes the underlying milkdown editor through .editor property
+    crepeInput.editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       if (view && typeof view.focus === 'function') view.focus();
     });
@@ -69,6 +84,7 @@ export async function initMilkdown({
 
   return {
     chatLogEditor,
-    chatInputEditor
+    chatInputEditor,
+    crepeInput // Return the crepe instance for additional control
   };
 }
