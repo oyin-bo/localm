@@ -9,8 +9,12 @@
  *   slashCommand: string,
  *   description: string,
  *   downloads?: number,
- *   pipeline_tag?: string
- *   requiresAuth?: boolean
+ *   pipeline_tag?: string,
+ *   requiresAuth?: boolean,
+ *   hasOnnx?: boolean,
+ *   hasTokenizer?: boolean,
+ *   missingFiles?: boolean,
+ *   missingReason?: string
  * }} ModelInfo
  */
 
@@ -38,38 +42,82 @@ export async function fetchBrowserModels() {
   }
 
   try {
-    console.log('Fetching transformers.js compatible models from Hugging Face Hub...');
-    
-    // Fetch models with transformers.js library tag, sorted by downloads
-    const response = await fetch(
-      // full=true returns cardData/private/gated so we can detect auth reliably
-      'https://huggingface.co/api/models?library=transformers.js&sort=downloads&direction=-1&limit=100&full=true'
-    );
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    console.log('Fetching transformers.js compatible models from Hugging Face Hub in batches...');
+
+    const batchSize = 1000;
+    const batchCount = 5; // 5 consecutive batches of 1000
+    let allRaw = [];
+
+    for (let i = 0; i < batchCount; i++) {
+      const skip = i * batchSize;
+      const url = `https://huggingface.co/api/models?library=transformers.js&sort=downloads&direction=-1&limit=${batchSize}&skip=${skip}&full=true`;
+      try {
+        // fetch sequentially to avoid surprises with HF rate limits
+        // eslint-disable-next-line no-await-in-loop
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.warn(`HF batch ${i+1} returned ${res.status}; stopping further batches`);
+          break;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        const batch = await res.json();
+        if (!Array.isArray(batch) || batch.length === 0) {
+          console.log(`HF batch ${i+1} returned 0 models; stopping`);
+          break;
+        }
+        console.log(`batch ${i+1} -> ${batch.length} models`);
+        allRaw = allRaw.concat(batch);
+        if (batch.length < batchSize) break; // last page
+      } catch (err) {
+        console.warn(`Error fetching HF batch ${i+1}:`, err);
+        break;
+      }
     }
-    
-    const rawModels = await response.json();
-    console.log(`Found ${rawModels.length} transformers.js models`);
-    
-    // Filter and process models
-    const processedModels = rawModels
-      .filter(isModelChatCapable)
-      .map(processModelData)
-      .filter(Boolean) // Remove any null results
-      .slice(0, 20); // Limit to top 20 models
-    
-    console.log(`Filtered to ${processedModels.length} mobile-capable models`);
-    
-    // Cache the results
-    modelCache = processedModels;
+
+    // dedupe by id
+    const seen = new Set();
+    const dedup = allRaw.filter(m => m && m.id && (!seen.has(m.id) ? (seen.add(m.id) || true) : false));
+    console.log(`fetched unique ${dedup.length} models`);
+
+    // Process models: detect required files (ONNX + tokenizer), determine gating
+    const processed = dedup.map(m => {
+      try {
+        const { hasOnnx, hasTokenizer, missingFiles, missingReason } = detectRequiredFiles(m);
+        const requiresAuth = Boolean(m.gated || m.private || (m.cardData && (m.cardData.gated || m.cardData.private)));
+        const base = processModelData(m);
+        if (!base) return null;
+        return Object.assign({}, base, {
+          requiresAuth: !!requiresAuth,
+          hasOnnx: !!hasOnnx,
+          hasTokenizer: !!hasTokenizer,
+          missingFiles: !!missingFiles,
+          missingReason: missingReason || '',
+          downloads: m.downloads || 0
+        });
+      } catch (e) {
+        return null;
+      }
+    }).filter(m => m !== null);
+
+    // Keep only models that have both ONNX and tokenizer files
+    const withFiles = processed.filter(p => p && p.hasOnnx && p.hasTokenizer);
+
+  // Sort by downloads desc
+  withFiles.sort((a, b) => ((b && b.downloads) || 0) - ((a && a.downloads) || 0));
+
+  const auth = withFiles.filter(m => m && m.requiresAuth).slice(0, 10).map(x => x);
+  const pub = withFiles.filter(m => m && !m.requiresAuth).slice(0, 10).map(x => x);
+
+    const final = [...auth, ...pub];
+
+    modelCache = final;
     cacheTimestamp = now;
-    
-    return processedModels;
+
+    console.log(`Selected ${auth.length} auth + ${pub.length} public models (total ${final.length})`);
+    return final;
   } catch (error) {
     console.error('Failed to fetch models from Hugging Face Hub:', error);
-    
+
     // Return fallback models if API fails
     return getFallbackModels();
   }
@@ -80,7 +128,7 @@ export async function fetchBrowserModels() {
  * @param {any} model - Raw model data from HF API
  * @returns {boolean}
  */
-function isModelChatCapable(model) {
+function isModelMobileCapable(model) {
   // Skip if no model ID
   if (!model.id) return false;
   
@@ -92,9 +140,16 @@ function isModelChatCapable(model) {
     return false;
   }
   
-  // Only allow chat/generative pipelines
-  const allowedPipelines = ['text-generation', 'text2text-generation'];
-  const hasAllowedPipeline = model.pipeline_tag && allowedPipelines.includes(model.pipeline_tag);
+  // Prefer models with certain pipeline tags that work well in browsers
+  const preferredTags = [
+    'text-generation',
+    'text2text-generation', 
+    'feature-extraction',
+    'sentence-similarity',
+    'fill-mask'
+  ];
+  
+  const hasPreferredTag = !model.pipeline_tag || preferredTags.includes(model.pipeline_tag);
   
   // Skip certain model types that are less suitable for general text generation
   const excludePatterns = [
@@ -104,18 +159,12 @@ function isModelChatCapable(model) {
     /audio/i,
     /translation/i,
     /classification/i,
-    /embedding/i,
-    /bert/i,
-    /mpnet/i,
-    /electra/i,
-    /roberta/i,
-    /minilm/i,
-    /sentence-transformers/i
+    /embedding/i
   ];
   
   const isExcluded = excludePatterns.some(pattern => pattern.test(model.id));
   
-  return hasAllowedPipeline && !isExcluded;
+  return hasPreferredTag && !isExcluded;
 }
 
 /**
@@ -172,7 +221,6 @@ function processModelData(model) {
     const vendor = extractVendor(model.id);
     const name = extractModelName(model.id);
     const slashCommand = generateSlashCommand(model.id);
-    const requiresAuth = Boolean(model.gated || model.private || (model.cardData && (model.cardData.gated || model.cardData.private)));
     
     return {
       id: model.id,
@@ -182,8 +230,7 @@ function processModelData(model) {
       slashCommand,
       description: `${formatSize(size)} parameter model from ${vendor}`,
       downloads: model.downloads || 0,
-      pipeline_tag: model.pipeline_tag,
-      requiresAuth
+      pipeline_tag: model.pipeline_tag
     };
   } catch (error) {
     console.warn(`Failed to process model ${model.id}:`, error);
@@ -276,6 +323,27 @@ function formatSize(size) {
 }
 
 /**
+ * Detect if the model repository includes necessary runtime files.
+ * Uses 'siblings' list available when calling Hugging Face API with full=true.
+ * @param {any} model
+ * @returns {{hasOnnx:boolean, hasTokenizer:boolean, missingFiles:boolean, missingReason:string}}
+ */
+function detectRequiredFiles(model) {
+  const siblings = Array.isArray(model.siblings) ? model.siblings : [];
+  const names = siblings.map(s => s.rfilename || s.filename || '');
+  const hasOnnx = names.some(n => /\.onnx$/i.test(n));
+  const hasTokenizer = names.some(n => /tokenizer\.json$/i.test(n) || /tokenizer_config\.json$/i.test(n));
+  const missing = !(hasOnnx && hasTokenizer);
+  let reason = '';
+  if (missing) {
+    if (!hasOnnx && !hasTokenizer) reason = 'Missing ONNX and tokenizer files';
+    else if (!hasOnnx) reason = 'Missing ONNX files';
+    else if (!hasTokenizer) reason = 'Missing tokenizer files';
+  }
+  return { hasOnnx, hasTokenizer, missingFiles: missing, missingReason: reason };
+}
+
+/**
  * Get fallback models if API fetch fails
  * @returns {ModelInfo[]}
  */
@@ -287,8 +355,7 @@ function getFallbackModels() {
       vendor: 'Microsoft',
       size: '3.8B',
       slashCommand: 'phi3',
-  description: 'Exceptional performance-to-size ratio, strong in reasoning and math',
-  requiresAuth: false
+      description: 'Exceptional performance-to-size ratio, strong in reasoning and math'
     },
     {
       id: 'mistralai/Mistral-7B-v0.1',
@@ -296,8 +363,7 @@ function getFallbackModels() {
       vendor: 'Mistral AI', 
       size: '7.3B',
       slashCommand: 'mistral',
-  description: 'Highly efficient, outperforms larger models with innovative architecture',
-  requiresAuth: false
+      description: 'Highly efficient, outperforms larger models with innovative architecture'
     },
     {
       id: 'Xenova/distilgpt2',
@@ -305,8 +371,7 @@ function getFallbackModels() {
       vendor: 'Xenova',
       size: '82M',
       slashCommand: 'distilgpt2',
-  description: 'Extremely fast and lightweight for quick prototyping',
-  requiresAuth: false
+      description: 'Extremely fast and lightweight for quick prototyping'
     },
     {
       id: 'openai-community/gpt2',
@@ -314,8 +379,7 @@ function getFallbackModels() {
       vendor: 'OpenAI',
       size: '124M',
       slashCommand: 'gpt2',
-  description: 'Foundational model for reliable lightweight text generation',
-  requiresAuth: false
+      description: 'Foundational model for reliable lightweight text generation'
     }
   ];
 }
