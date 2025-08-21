@@ -102,14 +102,11 @@ export async function* listChatModelsIterator(params = {}) {
     ];
     for (const url of urls) {
       for (let attempt = 0; attempt <= RETRIES; attempt++) {
-        // per-request timeout via race
+        // Use AbortController to allow caller to cancel, but do not enforce our own timeout here.
         const controller = new AbortController();
         inFlight.add(controller);
-        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
           const resp = await fetch(url, { signal: controller.signal, headers: hfToken ? { Authorization: `Bearer ${hfToken}` } : {} });
-          clearTimeout(timeout);
-          inFlight.delete(controller);
           if (resp.status === 200) {
             const json = await resp.json();
             counters.configFetch200++;
@@ -128,14 +125,14 @@ export async function* listChatModelsIterator(params = {}) {
           counters.configFetchError++;
           return { status: 'error', code: resp.status, message: `fetch failed ${resp.status}` };
         } catch (err) {
-          clearTimeout(timeout);
-          inFlight.delete(controller);
           if (attempt === RETRIES) {
             counters.configFetchError++;
             return { status: 'error', message: String(err) };
           }
           const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
           await new Promise(r => setTimeout(r, backoff));
+        } finally {
+          try { inFlight.delete(controller); } catch (e) {}
         }
       }
     }
@@ -223,10 +220,25 @@ export async function* listChatModelsIterator(params = {}) {
       if (survivors.length >= maxCandidates) break;
       const pipeline = m.pipeline_tag;
       if (pipeline && denyPipeline.has(pipeline)) continue;
-      if (typeof m.modelId === 'string' && m.modelId.includes('sentence-transformers')) continue;
+
+      // Normalize model id (HF listing uses `id` commonly; some code expects `modelId`)
+      const modelId = (m.modelId || m.id || m.model || '').toString();
+      if (modelId && modelId.includes('sentence-transformers')) continue;
+
+      // Sibling entries from HF API may be strings or objects with different keys
       const siblings = m.siblings || [];
-      const hasTokenizer = siblings.some(s => /tokenizer|vocab|merges|sentencepiece/i.test(s));
-      if (!hasTokenizer) continue;
+      const hasTokenizer = siblings.some((s) => {
+        if (!s) return false;
+        let name = null;
+        if (typeof s === 'string') name = s;
+        else if (typeof s === 'object') name = s.rfilename || s.name || s.path || s.filename || s.repo_file || s.file || null;
+        if (!name) return false;
+        return /tokenizer|vocab|merges|sentencepiece/i.test(String(name));
+      });
+
+      // Some listing entries may not expose siblings; fall back to pipeline_tag heuristic
+      if (!hasTokenizer && (!pipeline || !pipeline.toLowerCase().includes('text-generation'))) continue;
+
       survivors.push(m);
     }
 
