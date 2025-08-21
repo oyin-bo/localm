@@ -63,6 +63,7 @@ export async function initMilkdown({
       // Do NOT enable BlockEdit here; we'll add it later after models load
       [Crepe.Feature.Placeholder]: true,
       [Crepe.Feature.Cursor]: true,
+      [Crepe.Feature.BlockEdit]: false,
       [Crepe.Feature.ListItem]: true,
       [Crepe.Feature.CodeMirror]: true,
       // Disable features not needed for chat input
