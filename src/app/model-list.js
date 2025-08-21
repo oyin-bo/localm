@@ -1,5 +1,7 @@
 // @ts-check
 
+import fallbackModels from '../model-cache-filtered.json';
+
 /**
  * @typedef {{
  *   id: string,
@@ -24,6 +26,8 @@
 let modelCache = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const STORAGE_KEY = 'localm_models_cache_v1';
+const STORAGE_TTL = 24 * 60 * 60 * 1000; // 24 hours for persisted cache
 
 /**
  * Size thresholds for mobile capability (in billions of parameters)
@@ -113,15 +117,44 @@ export async function fetchBrowserModels() {
 
     modelCache = final;
     cacheTimestamp = now;
+    // Persist filtered list to localStorage as a fallback for offline or HF failures
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const payload = JSON.stringify({ ts: now, models: final });
+        localStorage.setItem(STORAGE_KEY, payload);
+      }
+    } catch (e) {
+      // ignore storage errors
+    }
 
     console.log(`Selected ${auth.length} auth + ${pub.length} public models (total ${final.length})`);
-    return final;
+    if (final.length) return final;
   } catch (error) {
     console.error('Failed to fetch models from Hugging Face Hub:', error);
-
-    // Return fallback models if API fails
-    return getFallbackModels();
+    // Try to restore from persisted cache before returning static fallback
   }
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.models)) {
+          const age = Date.now() - (parsed.ts || 0);
+          if (age < STORAGE_TTL) {
+            console.warn('Restoring models from localStorage cache (age ' + Math.round(age / 1000) + 's)');
+            modelCache = parsed.models;
+            cacheTimestamp = Date.now();
+            return modelCache;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // ignore parse/storage errors
+  }
+
+  // Return fallback models if API fails and no persisted cache
+  return fallbackModels;
 }
 
 /**
