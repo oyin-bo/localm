@@ -97,21 +97,20 @@ export async function initMilkdown({
           image: null,
           table: null,
           math: null,
-          // Add model commands to advanced group
-          ...Object.fromEntries(
-            availableModels.map(model => [
-              model.slashCommand, 
-              {
-                label: `${model.name} (${model.size})`,
-                icon: '🤖',
-                command: () => {
-                  if (onSlashCommand) {
-                    onSlashCommand(model.id);
-                  }
-                }
+        },
+        // Use buildMenu API to inject dynamic items supported by Crepe
+        buildMenu: (groupBuilder) => {
+          // Put models under a dedicated group to avoid clashing with built-ins
+          const modelsGroup = groupBuilder.addGroup('models', 'Models');
+          availableModels.forEach((model) => {
+            modelsGroup.addItem(model.slashCommand, {
+              label: `${model.name} (${model.size})`,
+              icon: '🤖',
+              onRun: () => {
+                if (onSlashCommand) onSlashCommand(model.id);
               }
-            ])
-          )
+            });
+          });
         }
       }
     }
