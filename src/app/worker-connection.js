@@ -8,8 +8,9 @@ export function workerConnection() {
   const connection = {
     loaded: workerLoaded.then(worker => ({ env: worker.env })),
     listModels,
-    loadModel,
-    runPrompt
+  loadModel,
+  runPrompt,
+  listChatModels
   };
 
   return connection;
@@ -36,7 +37,6 @@ export function workerConnection() {
             resolve({ worker, pending, send, env: msg.env });
             return;
           }
-
           if (msg && msg.id) {
             const id = msg.id;
             const entry = pending.get(id);
@@ -47,8 +47,14 @@ export function workerConnection() {
             } else if (msg.type === 'error') {
               pending.delete(id);
               entry.reject(new Error(msg.error));
+            } else if (msg.type === 'progress') {
+              // progress message for long-running operations
+              try {
+                if (entry.onProgress) entry.onProgress(msg);
+              } catch (e) {
+                // swallow progress handler errors
+              }
             }
-            //else entry.resolve(msg);
           }
         });
 
@@ -73,6 +79,29 @@ export function workerConnection() {
     await workerLoaded;
     const { send } = await workerLoaded;
     return send({ type: 'listModels' });
+  }
+
+  /**
+   * List and classify chat-capable models via worker. Returns a promise and accepts an onProgress callback.
+   * @param {object} params
+   * @param {(msg: any)=>void} [onProgress]
+   */
+  async function listChatModels(params = {}, onProgress) {
+    await workerLoaded;
+    const { send, pending, worker } = await workerLoaded;
+    return new Promise((resolve, reject) => {
+      const id = String(Math.random()).slice(2);
+      pending.set(id, { resolve, reject, onProgress });
+      const msg = Object.assign({}, params, { type: 'listChatModels', id });
+      try {
+        worker.postMessage(msg);
+      } catch (err) {
+        pending.delete(id);
+        return reject(err);
+      }
+      // also send via send to allow worker to reply with final response via same flow
+      send({ type: 'listChatModels', params }).then(resolve).catch(reject);
+    });
   }
 
   /** @param {string} modelName */
