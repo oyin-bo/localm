@@ -76,21 +76,47 @@ export function bootWorker() {
   async function handleListChatModels({ id, params = {} }) {
     const iterator = listChatModelsIterator(params);
     let sawDone = false;
+    // batching buffer
+    let batchBuffer = [];
+    let batchTimer = null;
+    const BATCH_MS = 50;
+    const BATCH_MAX = 50;
+
+    function flushBatch() {
+      if (!batchBuffer || batchBuffer.length === 0) return;
+      try {
+        self.postMessage({ id, type: 'progress', batch: true, items: batchBuffer.splice(0) });
+      } catch (e) {}
+      if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+    }
+
+    function enqueueProgress(delta) {
+      batchBuffer.push(delta);
+      if (batchBuffer.length >= BATCH_MAX) return flushBatch();
+      if (!batchTimer) {
+        batchTimer = setTimeout(() => { flushBatch(); }, BATCH_MS);
+      }
+    }
+
     activeTasks.set(id, { abort: () => { try { iterator.return(); } catch (e) {} } });
     try {
       for await (const delta of iterator) {
-        try { self.postMessage(Object.assign({ id, type: 'progress' }, delta)); } catch (e) {}
+        try { enqueueProgress(delta); } catch (e) {}
         if (delta && delta.status === 'done') {
           sawDone = true;
+          // flush any remaining progress messages synchronously
+          try { flushBatch(); } catch (e) {}
           try { self.postMessage({ id, type: 'response', result: { models: delta.models, meta: delta.meta } }); } catch (e) {}
           break;
         }
       }
       if (!sawDone) {
         // iterator exited early (likely cancelled)
+        try { flushBatch(); } catch (e) {}
         try { self.postMessage({ id, type: 'response', result: { cancelled: true } }); } catch (e) {}
       }
     } catch (err) {
+      try { flushBatch(); } catch (e) {}
       try { self.postMessage({ id, type: 'error', error: String(err), code: err.code || null }); } catch (e) {}
     } finally {
       activeTasks.delete(id);

@@ -12,6 +12,75 @@ export async function* listChatModelsIterator(params = {}) {
 
   const inFlight = new Set();
 
+  // Adaptive concurrency and telemetry
+  const counters = { configFetch429: 0, configFetch200: 0, configFetchError: 0 };
+  const initialConcurrency = Math.max(1, concurrency || 1);
+  let effectiveConcurrency = initialConcurrency;
+  let availableTokens = effectiveConcurrency;
+  const tokenWaiters = [];
+
+  // sliding window for 429 detection
+  const recent429s = [];
+  const RATE_WINDOW_MS = 30_000; // 30s window
+  const RATE_THRESHOLD = 10; // triggers backoff
+  const BACKOFF_WINDOW_MS = 30_000; // backoff period when triggered
+  let rateLimitedUntil = 0;
+
+  function pruneOld429s(now) {
+    while (recent429s.length && recent429s[0] < now - RATE_WINDOW_MS) recent429s.shift();
+  }
+
+  function record429() {
+    const now = Date.now();
+    recent429s.push(now);
+    pruneOld429s(now);
+    if (recent429s.length >= RATE_THRESHOLD) {
+      // reduce concurrency conservatively
+      const newEff = Math.max(1, Math.floor(effectiveConcurrency / 2));
+      const reduction = effectiveConcurrency - newEff;
+      if (reduction > 0) {
+        effectiveConcurrency = newEff;
+        // reduce availableTokens accordingly (don't abort in-flight)
+        availableTokens = Math.max(0, availableTokens - reduction);
+      }
+      rateLimitedUntil = now + BACKOFF_WINDOW_MS;
+    }
+  }
+
+  function maybeRestoreConcurrency() {
+    const now = Date.now();
+    pruneOld429s(now);
+    if (now < rateLimitedUntil) return; // still in backoff
+    if (recent429s.length === 0 && effectiveConcurrency < initialConcurrency) {
+      effectiveConcurrency = Math.min(initialConcurrency, effectiveConcurrency + 1);
+      availableTokens = Math.min(availableTokens + 1, effectiveConcurrency);
+      // wake one waiter if present
+      if (tokenWaiters.length) {
+        const w = tokenWaiters.shift();
+        if (w) w();
+      }
+    }
+  }
+
+  async function acquireToken() {
+    if (availableTokens > 0) {
+      availableTokens--;
+      return;
+    }
+    // wait until a token is available
+    await new Promise(resolve => tokenWaiters.push(resolve));
+    // when resolved, consume token
+    availableTokens = Math.max(0, availableTokens - 1);
+  }
+
+  function releaseToken() {
+    availableTokens = Math.min(effectiveConcurrency, availableTokens + 1);
+    if (tokenWaiters.length > 0 && availableTokens > 0) {
+      const w = tokenWaiters.shift();
+      if (w) w();
+    }
+  }
+
   async function fetchWithController(url, init = {}) {
     const c = new AbortController();
     inFlight.add(c);
@@ -43,26 +112,34 @@ export async function* listChatModelsIterator(params = {}) {
           inFlight.delete(controller);
           if (resp.status === 200) {
             const json = await resp.json();
+            counters.configFetch200++;
             return { status: 'ok', model_type: json.model_type || null, architectures: json.architectures || null };
           }
           if (resp.status === 401 || resp.status === 403) return { status: 'auth', code: resp.status };
           if (resp.status === 404) break; // try next fallback
           if (resp.status === 429) {
+            counters.configFetch429++;
+            // record rate-limit and maybe reduce concurrency
+            record429();
             const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
             await new Promise(r => setTimeout(r, backoff));
             continue;
           }
+          counters.configFetchError++;
           return { status: 'error', code: resp.status, message: `fetch failed ${resp.status}` };
         } catch (err) {
           clearTimeout(timeout);
           inFlight.delete(controller);
-          if (attempt === RETRIES) return { status: 'error', message: String(err) };
+          if (attempt === RETRIES) {
+            counters.configFetchError++;
+            return { status: 'error', message: String(err) };
+          }
           const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
           await new Promise(r => setTimeout(r, backoff));
         }
       }
     }
-    return { status: 'no-config' };
+  return { status: 'no-config' };
   }
 
   function classifyModel(rawModel, fetchResult) {
@@ -177,7 +254,10 @@ export async function* listChatModelsIterator(params = {}) {
       return events.shift();
     }
 
-    const workerCount = Math.min(concurrency, survivors.length || 1);
+    // start a small restore timer to gradually increase concurrency when safe
+    const restoreInterval = setInterval(maybeRestoreConcurrency, 5000);
+
+    const workerCount = Math.min(initialConcurrency, survivors.length || 1);
     const pool = new Array(workerCount).fill(0).map(async () => {
       while (true) {
         const i = idx++;
@@ -185,6 +265,8 @@ export async function* listChatModelsIterator(params = {}) {
         const model = survivors[i];
         const modelId = model.modelId || model.id || model.model || model.modelId;
         try {
+          // acquire concurrency token
+          await acquireToken();
           emit({ modelId, status: 'config_fetching' });
           const fetchResult = await fetchConfigForModel(modelId);
           const entry = classifyModel(model, fetchResult);
@@ -195,6 +277,8 @@ export async function* listChatModelsIterator(params = {}) {
           emit({ modelId, status: 'error', data: { message: String(err) } });
         } finally {
           processed++;
+          // release concurrency token so other workers can proceed
+          try { releaseToken(); } catch (e) {}
         }
       }
     });
@@ -213,11 +297,14 @@ export async function* listChatModelsIterator(params = {}) {
     await Promise.all(pool);
 
     // final
-    const models = results.map(r => ({ id: r.id, model_type: r.model_type, architectures: r.architectures, classification: r.classification, confidence: r.confidence, fetchStatus: r.fetchStatus }));
-    const meta = { fetched: listing.length, filtered: survivors.length, errors };
-    yield { status: 'done', models, meta };
+  const models = results.map(r => ({ id: r.id, model_type: r.model_type, architectures: r.architectures, classification: r.classification, confidence: r.confidence, fetchStatus: r.fetchStatus }));
+  const meta = { fetched: listing.length, filtered: survivors.length, errors };
+  if (params && params.debug) meta.counters = Object.assign({}, counters);
+  yield { status: 'done', models, meta };
   } finally {
-    // abort any in-flight fetches if iteration stopped early
-    for (const c of Array.from(inFlight)) try { c.abort(); } catch (e) {}
+  // abort any in-flight fetches if iteration stopped early
+  for (const c of Array.from(inFlight)) try { c.abort(); } catch (e) {}
+  // cleanup restore timer
+  try { clearInterval(restoreInterval); } catch (e) {}
   }
 }
