@@ -22,9 +22,7 @@ export async function bootApp() {
   worker.loaded.then(async ({ env }) => {
     document.title = name + ' v' + version + ' t/' + env.version;
     outputMessage(
-      'transformers.js\n\n```JSON\n' + JSON.stringify(env, null, 2) + '\n```');
-    const models = await worker.listModels();
-    //outputMessage('Available models: ' + models.join(', '));
+      'transformers.js v' + env.version);
   });
 
   const {
@@ -56,5 +54,5 @@ export async function bootApp() {
   // Setup Enter key handling for the Crepe input editor
   setupCrepeEnterKey(crepeInput, worker);
   document.title = name + ' v' + version;
-  outputMessage(description + ' v' + version + ' loaded OK.');
+  outputMessage(description + ' v' + version);
 }

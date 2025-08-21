@@ -13,6 +13,7 @@ import { commonmark } from '@milkdown/kit/preset/commonmark';
 
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
+import { outputMessage } from './output-message';
 
 /**
  * @typedef {{
@@ -80,20 +81,101 @@ export async function initMilkdown({
   // Fetch models in background and add BlockEdit when ready
   (async () => {
     try {
+      if (!worker || typeof worker.listChatModels !== 'function') {
+        console.warn('[initMilkdown] worker.listChatModels not available; skipping BlockEdit setup');
+        return;
+      }
+  console.log('[initMilkdown] requesting models from worker');
       const { id, promise, cancel } = await worker.listChatModels({}, undefined);
       const out = await promise;
-      const entries = Array.isArray(out.models ? out.models : out) ? (out.models || out) : [];
-      const availableModels = entries.map(e => ({ id: e.id, name: e.name || (e.id || '').split('/').pop(), size: '', slashCommand: (e.id || '').split('/').pop(), pipeline_tag: e.pipeline_tag || null, requiresAuth: e.classification === 'auth-protected' }));
+  console.log('[initMilkdown] worker.listChatModels resolved', out && out.meta ? out.meta : out);
+
+      // Normalize possible response shapes
+      let entries = [];
+      if (Array.isArray(out)) entries = out;
+      else if (out && Array.isArray(out.models)) entries = out.models;
+      else if (out && Array.isArray(out.results)) entries = out.results;
+      else entries = [];
+
+      const availableModels = entries.map(e => ({
+        id: e.id || e.modelId || '',
+        name: e.name || (e.id || e.modelId || '').split('/').pop(),
+        size: '',
+        slashCommand: (e.id || e.modelId || '').split('/').pop(),
+        pipeline_tag: e.pipeline_tag || null,
+        requiresAuth: e.classification === 'auth-protected'
+      }));
+
+      console.log('[initMilkdown] extracted models', { count: availableModels.length });
+
+      outputMessage('Models discovered: **' + availableModels.length + '**');
 
       // Add BlockEdit feature now that models are available
-      crepeInput.addFeature(blockEdit, {
+      const _addFeatureResult = crepeInput.addFeature(blockEdit, {
         buildMenu: (groupBuilder) => {
           const modelsGroup = groupBuilder.addGroup('models', 'Models');
-          (availableModels || []).forEach((model) => modelsGroup.addItem(model.slashCommand, { label: `${model.name} ${model.size ? `(${model.size})` : ''}`, icon: '🤖', onRun: () => { if (onSlashCommand) onSlashCommand(model.id); } }));
+          (availableModels || []).forEach((model) => modelsGroup.addItem(model.slashCommand, {
+            label: `${model.name} ${model.size ? `(${model.size})` : ''}`,
+            icon: '🤖',
+            onRun: () => { if (onSlashCommand) onSlashCommand(model.id); }
+          }));
         }
       });
+      // await in case addFeature returns a promise (some implementations do async init)
+      try {
+        await Promise.resolve(_addFeatureResult);
+      } catch (e) {
+        console.warn('[initMilkdown] addFeature promise rejected', e);
+      }
+      console.log('[initMilkdown] BlockEdit feature added');
+      // Non-destructive smoke-test: insert a '/' then remove it to trigger the slash provider
+      // This helps verify the menu actually shows when the feature is registered.
+      try {
+        crepeInput.editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          if (!view) return;
+          const pos = view.state.selection.from;
+          try {
+            view.dispatch(view.state.tr.insertText('/', pos));
+            console.log('[initMilkdown] probe: inserted slash at', pos);
+          } catch (e) {
+            console.warn('[initMilkdown] probe insert failed', e);
+          }
+          // Remove the inserted slash shortly after to avoid mutating user content
+          setTimeout(() => {
+            try {
+              crepeInput.editor.action((ctx2) => {
+                const view2 = ctx2.get(editorViewCtx);
+                if (!view2) return;
+                const selFrom = view2.state.selection.from;
+                // delete the single character if still present at the original position
+                const delTr = view2.state.tr.delete(pos, pos + 1);
+                view2.dispatch(delTr);
+                console.log('[initMilkdown] probe: removed slash at', pos);
+              });
+            } catch (e) {
+              console.warn('[initMilkdown] probe cleanup failed', e);
+            }
+          }, 300);
+        });
+      } catch (e) {
+        console.warn('[initMilkdown] probe failed', e);
+      }
+      // Trigger a small editor action to ensure the UI acknowledges the new feature
+      try {
+        crepeInput.editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          if (view && typeof view.update === 'function') try { view.update(view.state); } catch (e) {}
+        });
+      } catch (e) {
+        // if action fails, ignore
+      }
     } catch (e) {
       console.warn('Failed to load models for BlockEdit via worker:', e);
+      try {
+        const marker = document.getElementById('models-loaded-indicator');
+        if (marker && marker.parentNode) marker.parentNode.removeChild(marker);
+      } catch (ee) {}
     }
   })();
 

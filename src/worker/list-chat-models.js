@@ -144,7 +144,9 @@ export async function* listChatModelsIterator(params = {}) {
     const entry = { id, model_type: null, architectures: null, classification: 'unknown', confidence: 'low', fetchStatus: 'error' };
     if (!fetchResult) return entry;
     if (fetchResult.status === 'auth') {
-      entry.classification = 'auth-protected'; entry.confidence = 'high'; entry.fetchStatus = String(fetchResult.code || 401);
+      entry.classification = 'auth-protected';
+      entry.confidence = 'high';
+      entry.fetchStatus = String(fetchResult.code || 401);
       return entry;
     }
     if (fetchResult.status === 'ok') {
@@ -309,8 +311,12 @@ export async function* listChatModelsIterator(params = {}) {
     await Promise.all(pool);
 
     // final
-  const models = results.map(r => ({ id: r.id, model_type: r.model_type, architectures: r.architectures, classification: r.classification, confidence: r.confidence, fetchStatus: r.fetchStatus }));
-  const meta = { fetched: listing.length, filtered: survivors.length, errors };
+  // Select up to 20 non-auth models and 20 auth-required models to avoid returning a very large list.
+  const authRequired = results.filter(r => r.classification === 'auth-protected').slice(0, 50);
+  const nonAuth = results.filter(r => r.classification !== 'auth-protected').slice(0, 50);
+  const selected = nonAuth.concat(authRequired);
+  const models = selected.map(r => ({ id: r.id, model_type: r.model_type, architectures: r.architectures, classification: r.classification, confidence: r.confidence, fetchStatus: r.fetchStatus }));
+  const meta = { fetched: listing.length, filtered: survivors.length, errors, selected: { nonAuth: nonAuth.length, authRequired: authRequired.length, total: models.length } };
   if (params && params.debug) meta.counters = Object.assign({}, counters);
   yield { status: 'done', models, meta };
   } finally {
