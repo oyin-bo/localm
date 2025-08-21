@@ -8,6 +8,7 @@ import {
   rootCtx
 } from '@milkdown/core';
 import { Crepe } from '@milkdown/crepe';
+import { blockEdit } from '@milkdown/crepe/feature/block-edit';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { slashFactory } from "@milkdown/plugin-slash";
 import { fetchBrowserModels } from './model-list.js';
@@ -54,12 +55,12 @@ export async function initMilkdown({
     .use(commonmark)
     .create();
 
-  // Create editable Crepe editor in .chat-input
+  // Create editable Crepe editor in .chat-input (without BlockEdit)
   const crepeInput = new Crepe({
     root: chatInput,
     defaultValue: '',
     features: {
-      [Crepe.Feature.BlockEdit]: true, // Enable slash menu
+      // Do NOT enable BlockEdit here; we'll add it later after models load
       [Crepe.Feature.Placeholder]: true,
       [Crepe.Feature.Cursor]: true,
       [Crepe.Feature.ListItem]: true,
@@ -69,50 +70,30 @@ export async function initMilkdown({
       [Crepe.Feature.Table]: true,
       [Crepe.Feature.Latex]: true,
       [Crepe.Feature.Toolbar]: true,
-      [Crepe.Feature.LinkTooltip]: true
+      [Crepe.Feature.LinkTooltip]: true,
     },
     featureConfigs: {
       [Crepe.Feature.Placeholder]: {
         text: 'Start typing...',
         mode: 'block'
-      },
-      [Crepe.Feature.BlockEdit]: {
-        textGroup: {
-          label: 'Text',
-          text: null, // Hide /text option
-          h1: { label: 'Heading', icon: '#' },
-          h2: null, h3: null, h4: null, h5: null, h6: null, // Hide other headings
-          quote: { label: 'Quote', icon: '>' },
-          divider: null
-        },
-        listGroup: {
-          label: 'Lists',
-          bulletList: { label: 'List', icon: '•' },
-          orderedList: { label: 'Numbered', icon: '1.' },
-          taskList: null
-        },
-        advancedGroup: {
-          label: 'Advanced',
-          codeBlock: { label: 'Code', icon: '`' },
-          image: null,
-          table: null,
-          math: null,
-        },
-        // Use buildMenu API to inject dynamic items supported by Crepe
-        buildMenu: (groupBuilder) => {
-          // Put models under a dedicated group to avoid clashing with built-ins
-          const modelsGroup = groupBuilder.addGroup('models', 'Models');
-          availableModels.forEach((model) => {
-            modelsGroup.addItem(model.slashCommand, {
-              label: `${model.name} (${model.size})`,
-              icon: '🤖',
-              onRun: () => {
-                if (onSlashCommand) onSlashCommand(model.id);
-              }
-            });
-          });
-        }
       }
+    }
+  });
+
+  // Dynamically add BlockEdit feature now that models are available.
+  crepeInput.addFeature(blockEdit, {
+    // Provide only a single 'models' group populated from availableModels
+    buildMenu: (groupBuilder) => {
+      const modelsGroup = groupBuilder.addGroup('models', 'Models');
+      availableModels.forEach((model) => {
+        modelsGroup.addItem(model.slashCommand, {
+          label: `${model.name} (${model.size})`,
+          icon: '🤖',
+          onRun: () => {
+            if (onSlashCommand) onSlashCommand(model.id);
+          }
+        });
+      });
     }
   });
 
