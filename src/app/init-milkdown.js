@@ -10,7 +10,7 @@ import {
 import { Crepe } from '@milkdown/crepe';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 
-import { addModelSlashToCrepe, modelSlash } from './model-slash';
+import { createModelSlashPlugin } from './model-slash';
 import { outputMessage } from './output-message';
 
 import "@milkdown/crepe/theme/common/style.css";
@@ -51,6 +51,14 @@ export async function initMilkdown({
     .use(commonmark)
     .create();
 
+  let availableModels = [];
+
+  // Create the model slash plugin configuration
+  const modelSlashSetup = createModelSlashPlugin({
+    getModels: () => availableModels,
+    onSlashCommand: onSlashCommand
+  });
+
   // Create editable Crepe editor in .chat-input (without BlockEdit)
   const crepeInput = new Crepe({
     root: chatInput,
@@ -74,54 +82,42 @@ export async function initMilkdown({
       }
     }
   });
-  // Create input editor immediately so the UI is responsive.
-  const chatInputEditor = (await crepeInput.create()).use(modelSlash);
+
+  // Create input editor with model slash plugin
+  // Apply the model slash plugin configuration before creating the editor
+  const chatInputEditor = await crepeInput
+    .editor.config(modelSlashSetup.config)
+    .use(modelSlashSetup.plugin)
+    .create();
 
   // Fetch models in background and add model slash plugin when ready
   (async () => {
-    try {
-      const { id, promise, cancel } = await worker.listChatModels({}, undefined);
-      const out = await promise;
+    const { id, promise, cancel } = await worker.listChatModels({}, undefined);
+    const out = await promise;
 
-      // Normalize possible response shapes
-      let entries = [];
-      if (Array.isArray(out)) entries = out;
-      else if (out && Array.isArray(out.models)) entries = out.models;
-      else if (out && Array.isArray(out.results)) entries = out.results;
-      else entries = [];
+    // Normalize possible response shapes
+    let entries = [];
+    if (Array.isArray(out)) entries = out;
+    else if (out && Array.isArray(out.models)) entries = out.models;
+    else if (out && Array.isArray(out.results)) entries = out.results;
+    else entries = [];
 
-      const availableModels = entries.map(e => ({
-        id: e.id || e.modelId || '',
-        name: e.name || (e.id || e.modelId || '').split('/').pop(),
-        size: '',
-        requiresAuth: e.classification === 'auth-protected'
-      }));
+    availableModels = entries.map(e => ({
+      id: e.id || e.modelId || '',
+      name: e.name || (e.id || e.modelId || '').split('/').pop(),
+      size: '',
+      requiresAuth: e.classification === 'auth-protected'
+    }));
 
-      outputMessage('Models discovered: **' + availableModels.length + '**');
-
-      // Add model slash plugin to the editor
-      await addModelSlashToCrepe(crepeInput, availableModels, {
-        onSlashCommand: (modelId) => {
-          if (onSlashCommand) {
-            return onSlashCommand(modelId);
-          }
-        }
-      });
-    } catch (e) {
-      console.warn('Failed to load models for slash plugin via worker:', e);
-    }
+    outputMessage('Models discovered: **' + availableModels.length + '**');
   })();
 
   // Auto-focus the Crepe input editor when ready
-  try {
-    // Crepe exposes the underlying milkdown editor through .editor property
-    crepeInput.editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      if (view && typeof view.focus === 'function') view.focus();
-    });
-  } catch (e) {
-    // Ignore if focusing fails in some environments
-  }
+  // Crepe exposes the underlying milkdown editor through .editor property
+  crepeInput.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    if (view && typeof view.focus === 'function') view.focus();
+  });
 
   return {
     chatLogEditor,
