@@ -103,3 +103,62 @@ Design rule: yield final `{ status: 'done' }` explicitly; do not rely on generat
 
 This plan keeps the code minimal, uses language-native iterator cancellation, isolates side-effects to the generator, and leaves the worker wrapper trivial. Proceed to implement when ready.
 
+## Follow-up improvements (post-cleanup)
+
+After the extraction and wrapper are in place, the following three low-risk improvements should be applied as follow-ups. Each item below is written as an exact, small TODO with acceptance criteria and a short testing checklist.
+
+1) Cleanup `boot-worker.js` (remove duplicated helpers)
+- Goal: remove leftover duplicate helper implementations from `boot-worker.js` so there is a single source-of-truth for `fetchConfigForModel` and `classifyModel` (the new action module). This reduces maintenance surface and avoids accidental drift.
+- Changes (exact):
+	- Delete the `fetchConfigForModel` and `classifyModel` helper functions from `src/worker/boot-worker.js` (the ones that are no longer used after extraction).
+	- Ensure the only import of those helpers is via `import { listChatModelsIterator } from './actions/list-chat-models.js';` — do not re-export them from the action module unless tests need them. If other parts of `boot-worker.js` still need config/classify helpers, move shared helper functions to a small `src/worker/lib/model-utils.js` and import from both places.
+	- Run a quick grep for remaining references to unused symbols (`fetchConfigForModel`, `classifyModel`) and remove any stale code.
+- Tests / acceptance:
+	- Build/lint passes with no unused-variable warnings for the removed symbols.
+	- The `listChatModels` worker flow behaves identically after cleanup (run smoke test: progress + final response + cancellation).
+- Risk: trivial; mitigate by running the smoke test immediately after change.
+
+2) Adaptive concurrency on repeated 429 responses
+- Goal: make the config-fetch promise pool responsive to huggingface rate-limits by reducing parallelism when many 429s occur and gradually increasing when the rate improves.
+- Design (practical, minimal):
+	- Instrument a small rate-limit counter in the action module: keep a sliding window counter of `configFetch.429` events (for example, track count and timestamp of recent 429s in an array limited to the last 30s).
+	- Add two simple thresholds: if 429_count_in_window >= 10 then reduce `effectiveConcurrency = Math.max(1, Math.floor(effectiveConcurrency / 2))` and mark `rateLimitedUntil = Date.now() + backoffWindowMs` (backoffWindowMs e.g. 30s). If no 429s recorded for backoffWindowMs, gradually restore `effectiveConcurrency = Math.min(initialConcurrency, effectiveConcurrency + 1)` every backoffWindowMs/2.
+	- Implementation notes: do not recreate worker goroutines; rather implement a token/semaphore scheme where each worker must acquire a token before starting a config fetch. Maintain `tokenCount = effectiveConcurrency`. When thresholds change, adjust tokenCount (release or reduce available tokens). This allows workers to respect new concurrency without tearing down the pool.
+	- Track metrics: increment `counters.configFetch429++` and `counters.configFetch200++` for telemetry (simple numeric fields inside the action module). Expose the counters in the final meta if `params.debug` is true.
+- Changes (exact):
+	- Add `const counters = { configFetch429:0, configFetch200:0, configFetchError:0 }` to the top of `list-chat-models.js` action module.
+	- Replace the fixed `workerCount = Math.min(concurrency, survivors.length || 1)` with a token-based semaphore that uses `effectiveConcurrency` which can be modified at runtime by the rate-limit detector.
+	- On each fetch response with 429, update the sliding window and possibly reduce `effectiveConcurrency` and tokenCount; when tokenCount changes, wake waiting workers so they re-evaluate.
+- Tests / acceptance:
+	- Simulate many 429s using a mocked fetch; confirm effectiveConcurrency is reduced and fewer concurrent requests are outstanding (can use counters or a small instrumentation hook).
+	- After simulated quiet period, confirm effectiveConcurrency slowly ramps back up.
+- Risk: medium subtlety but implementable as a simple token count and counters; keep logic intentionally conservative and well-tested.
+
+3) Batching of progress messages to avoid UI flood
+- Goal: reduce main-thread overhead when the generator emits many small per-model progress objects in a short time window by coalescing them into small batches sent by the wrapper.
+- Design (minimal):
+	- Implement a tiny buffer in `boot-worker.js`'s wrapper around `self.postMessage` for progress messages: collect deltas into an array `batchBuffer` and flush every `BATCH_MS` (recommended 50ms) or when buffer reaches `BATCH_MAX` (recommended 50 items).
+	- Message shape: send `{ id, type: 'progress', batch: true, items: [ ...deltas ] }` for batched messages. Keep single-item messages as `{ id, type: 'progress', ...delta }` for backward compatibility if prefer — but prefer consistent batching (UI can accept either if updated). Document the change for the UI consumer and update the UI progress handler to accept `msg.batch ? msg.items : [msg]`.
+	- Implementation exact steps:
+		1. In `boot-worker.js` create `let batchBuffer = []; let batchTimer = null; const BATCH_MS = 50; const BATCH_MAX = 50;`
+		2. Replace immediate `self.postMessage(Object.assign({ id, type: 'progress' }, delta))` with `enqueueProgress(delta)` where `enqueueProgress` pushes delta into `batchBuffer`, starts the timer if not running, and flushes when length >= BATCH_MAX.
+		3. `flush` sends one message `self.postMessage({ id, type: 'progress', batch: true, items: batchBuffer.splice(0) })` and clears timer.
+		4. On `done` or `error` ensure `flush()` is called synchronously before sending `response`/`error` so UI receives final state.
+- Tests / acceptance:
+	- Smoke test: when scanning many models, verify UI receives fewer, larger progress messages (monitor frequency in devtools) and UI still updates correctly.
+	- Ensure cancellation still works and that flush is invoked on iterator termination.
+- Risk: low; main caution is updating UI to accept `batch` messages (small consumer change). If you prefer zero-change on UI, the wrapper can detect if `pendingEntry.onProgress` exists and deliver either single items or preferrably call `onProgress({ batch:true, items })`.
+
+Order of follow-ups and rollout suggestion
+- Apply `boot-worker.js` cleanup first (trivial, low-risk). Run smoke tests.
+- Add batching next (low-risk). Update the UI progress handler to accept batch messages; smoke test with a large run to ensure smooth UI.
+- Add adaptive concurrency last (medium risk). Implement with conservative thresholds and unit tests that simulate 429 storms.
+
+Verification checklist after all follow-ups
+- Lint/build: PASS
+- Worker: streams progress in batches, final `response` arrives unchanged
+- Cancellation: `cancelListChatModels` aborts iterator quickly and no more progress messages are sent after final cancellation response (or only those emitted during cleanup if intentionally emitted)
+- Under repeated 429s: concurrency reduced and total in-flight requests observed to drop; counters exposed in `meta` when `params.debug` is enabled
+
+When you want, I can implement these three follow-ups in that order; tell me to proceed and I'll make small, focused edits and run quick smoke tests after each one.
+

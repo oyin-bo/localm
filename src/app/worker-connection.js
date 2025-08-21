@@ -99,8 +99,6 @@ export function workerConnection() {
         pending.delete(id);
         return reject(err);
       }
-      // also send via send to allow worker to reply with final response via same flow
-      send({ type: 'listChatModels', params }).then(resolve).catch(reject);
     });
   }
 
