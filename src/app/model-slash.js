@@ -46,14 +46,6 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
     menu.innerHTML = '';
     
     const availableModels = getModels();
-    
-    // Create header if there are models
-    if (availableModels.length > 0) {
-      const header = document.createElement('div');
-      header.className = "px-3 py-2 text-sm font-semibold text-gray-600 border-b bg-gray-50";
-      header.textContent = `Models (${availableModels.length})`;
-      menu.appendChild(header);
-    }
 
     if (availableModels.length === 0) {
       const noModels = document.createElement('div');
@@ -136,7 +128,7 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
     shouldShow(view) {
       return provider.getContent(view)?.endsWith('/') ?? false;
     },
-    offset: 8,
+    offset: 15,
   });
 
   // Hide on Escape key — attach a document listener and remove it on destroy

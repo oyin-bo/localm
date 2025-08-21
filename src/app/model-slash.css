@@ -1,14 +1,11 @@
 .slash-menu {
   position: absolute;
-  padding: 0;
   background: white;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  border-radius: 8px;
-  font-size: 14px;
-  max-height: 256px;
-  overflow-y: auto;
-  min-width: 256px;
+  border: 1px solid silver;
+  box-shadow: 3px 6px 9px -1px rgb(0 0 0 / 16%);
+  max-height: 60vh;
+  overflow: auto;
+  min-width: 10em;
   z-index: 50;
 
   .model-list {
