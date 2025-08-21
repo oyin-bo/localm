@@ -34,7 +34,16 @@ export async function bootApp() {
   } = await initMilkdown({
     chatLog,
     chatInput,
-    inputPlugins: makeEnterPlugins({ workerConnection: worker })
+    inputPlugins: makeEnterPlugins({ workerConnection: worker }),
+    onSlashCommand: async (modelId) => {
+      try {
+        outputMessage(`Loading model: ${modelId}...`);
+        await worker.loadModel(modelId);
+        outputMessage(`Model ${modelId} loaded successfully!`);
+      } catch (error) {
+        outputMessage(`Error loading model ${modelId}: ${error.message}`);
+      }
+    }
   });
   
   chatLogEditor = chatLogEditorInstance;

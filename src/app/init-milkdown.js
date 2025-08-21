@@ -10,6 +10,7 @@ import {
 import { Crepe } from '@milkdown/crepe';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { slashFactory } from "@milkdown/plugin-slash";
+import { fetchBrowserModels } from './model-list.js';
 
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
@@ -36,6 +37,12 @@ export async function initMilkdown({
 
   if (chatLog) chatLog.innerHTML = '';
   if (chatInput) chatInput.innerHTML = '';
+
+  // Fetch available models for slash menu
+  console.log('Starting to fetch browser models...');
+  const availableModels = await fetchBrowserModels();
+  console.log(`Loaded ${availableModels.length} models for slash menu`);
+  console.log('Available models:', availableModels);
 
   // Create read-only editor in .chat-log
   const chatLogEditor = await Editor.make()
@@ -85,11 +92,26 @@ export async function initMilkdown({
           taskList: null
         },
         advancedGroup: {
-          label: 'Code',
+          label: 'Advanced',
           codeBlock: { label: 'Code', icon: '`' },
           image: null,
           table: null,
-          math: null
+          math: null,
+          // Add model commands to advanced group
+          ...Object.fromEntries(
+            availableModels.map(model => [
+              model.slashCommand, 
+              {
+                label: `${model.name} (${model.size})`,
+                icon: '🤖',
+                command: () => {
+                  if (onSlashCommand) {
+                    onSlashCommand(model.id);
+                  }
+                }
+              }
+            ])
+          )
         }
       }
     }
