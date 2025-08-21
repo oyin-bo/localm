@@ -1,6 +1,6 @@
 {
   "name": "localm",
-  "version": "1.1.20",
+  "version": "1.1.21",
   "description": "Chat application",
   "scripts": {
     "build": "esbuild src/index.js --target=es6 --bundle --sourcemap --outfile=./index.js --format=iife --external:fs --external:path --external:child_process --external:ws --external:katex/dist/katex.min.css",

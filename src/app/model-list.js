@@ -56,20 +56,20 @@ export async function fetchBrowserModels() {
         // eslint-disable-next-line no-await-in-loop
         const res = await fetch(url);
         if (!res.ok) {
-          console.warn(`HF batch ${i+1} returned ${res.status}; stopping further batches`);
+          console.warn(`HF batch ${i + 1} returned ${res.status}; stopping further batches`);
           break;
         }
         // eslint-disable-next-line no-await-in-loop
         const batch = await res.json();
         if (!Array.isArray(batch) || batch.length === 0) {
-          console.log(`HF batch ${i+1} returned 0 models; stopping`);
+          console.log(`HF batch ${i + 1} returned 0 models; stopping`);
           break;
         }
-        console.log(`batch ${i+1} -> ${batch.length} models`);
+        console.log(`batch ${i + 1} -> ${batch.length} models`);
         allRaw = allRaw.concat(batch);
         if (batch.length < batchSize) break; // last page
       } catch (err) {
-        console.warn(`Error fetching HF batch ${i+1}:`, err);
+        console.warn(`Error fetching HF batch ${i + 1}:`, err);
         break;
       }
     }
@@ -92,22 +92,22 @@ export async function fetchBrowserModels() {
           hasTokenizer: !!hasTokenizer,
           missingFiles: !!missingFiles,
           missingReason: missingReason || '',
-      downloads: m.downloads || 0,
-      tags: Array.isArray(m.tags) ? m.tags.slice() : []
+          downloads: m.downloads || 0,
+          tags: Array.isArray(m.tags) ? m.tags.slice() : []
         });
       } catch (e) {
         return null;
       }
     }).filter(m => m !== null);
 
-  // Keep only models that have both ONNX and tokenizer files AND support chat
-  const withFiles = processed.filter(p => p && p.hasOnnx && p.hasTokenizer && isModelChatCapable(p));
+    // Keep only models that have both ONNX and tokenizer files AND support chat
+    const withFiles = processed.filter(p => p && p.hasOnnx && p.hasTokenizer && isModelChatCapable(p));
 
-  // Sort by downloads desc
-  withFiles.sort((a, b) => ((b && b.downloads) || 0) - ((a && a.downloads) || 0));
+    // Sort by downloads desc
+    withFiles.sort((a, b) => ((b && b.downloads) || 0) - ((a && a.downloads) || 0));
 
-  const auth = withFiles.filter(m => m && m.requiresAuth).slice(0, 10).map(x => x);
-  const pub = withFiles.filter(m => m && !m.requiresAuth).slice(0, 10).map(x => x);
+    const auth = withFiles.filter(m => m && m.requiresAuth).slice(0, 10).map(x => x);
+    const pub = withFiles.filter(m => m && !m.requiresAuth).slice(0, 10).map(x => x);
 
     const final = [...auth, ...pub];
 
@@ -132,26 +132,26 @@ export async function fetchBrowserModels() {
 function isModelMobileCapable(model) {
   // Skip if no model ID
   if (!model.id) return false;
-  
+
   // Estimate model size from various indicators
   const sizeEstimate = estimateModelSize(model);
-  
+
   // Skip models that are too large
   if (sizeEstimate > MOBILE_SIZE_THRESHOLD) {
     return false;
   }
-  
+
   // Prefer models with certain pipeline tags that work well in browsers
   const preferredTags = [
     'text-generation',
-    'text2text-generation', 
+    'text2text-generation',
     'feature-extraction',
     'sentence-similarity',
     'fill-mask'
   ];
-  
+
   const hasPreferredTag = !model.pipeline_tag || preferredTags.includes(model.pipeline_tag);
-  
+
   // Skip certain model types that are less suitable for general text generation
   const excludePatterns = [
     /whisper/i,
@@ -162,9 +162,9 @@ function isModelMobileCapable(model) {
     /classification/i,
     /embedding/i
   ];
-  
+
   const isExcluded = excludePatterns.some(pattern => pattern.test(model.id));
-  
+
   return hasPreferredTag && !isExcluded;
 }
 
@@ -175,14 +175,14 @@ function isModelMobileCapable(model) {
  */
 function estimateModelSize(model) {
   const modelId = model.id.toLowerCase();
-  
+
   // Extract size from model name patterns
   const sizePatterns = [
     /(\d+\.?\d*)b\b/i,    // "7b", "3.8b", etc.
     /(\d+)m\b/i,          // "125m" -> convert to billions
     /(\d+)k\b/i           // "125k" -> very small
   ];
-  
+
   for (const pattern of sizePatterns) {
     const match = modelId.match(pattern);
     if (match) {
@@ -196,7 +196,7 @@ function estimateModelSize(model) {
       }
     }
   }
-  
+
   // If no size found in name, make conservative estimates based on model family
   if (modelId.includes('gpt2') || modelId.includes('distil')) return 0.2;
   if (modelId.includes('phi-1') || modelId.includes('phi1')) return 1.3;
@@ -206,7 +206,7 @@ function estimateModelSize(model) {
   if (modelId.includes('qwen') && modelId.includes('7b')) return 7;
   if (modelId.includes('llama') && modelId.includes('7b')) return 7;
   if (modelId.includes('llama') && modelId.includes('13b')) return 13;
-  
+
   // Default conservative estimate for unknown models
   return 5;
 }
@@ -222,7 +222,7 @@ function processModelData(model) {
     const vendor = extractVendor(model.id);
     const name = extractModelName(model.id);
     const slashCommand = generateSlashCommand(model.id);
-    
+
     return {
       id: model.id,
       name,
@@ -272,7 +272,7 @@ function extractVendor(modelId) {
 function extractModelName(modelId) {
   const parts = modelId.split('/');
   const name = parts[parts.length - 1];
-  
+
   // Clean up common patterns
   return name
     .replace(/-ONNX$/, '')
@@ -291,7 +291,7 @@ function extractModelName(modelId) {
  */
 function generateSlashCommand(modelId) {
   const name = (modelId.split('/').pop() || modelId).toLowerCase();
-  
+
   // Create short, memorable commands
   if (name.includes('phi-3') || name.includes('phi3')) return 'phi3';
   if (name.includes('phi-1') || name.includes('phi1')) return 'phi1';
@@ -304,7 +304,7 @@ function generateSlashCommand(modelId) {
   if (name.includes('llama')) return 'llama';
   if (name.includes('gemma')) return 'gemma';
   if (name.includes('flan')) return 'flant5';
-  
+
   // Generate from first few characters of model name
   const clean = name.replace(/[^a-z0-9]/g, '');
   return clean.substring(0, 8);
@@ -351,7 +351,10 @@ function detectRequiredFiles(model) {
  */
 function isModelChatCapable(model) {
   if (!model) return false;
-  const allowedPipelines = new Set(['text-generation', 'conversational', 'text2text-generation', 'chat']);
+  const allowedPipelines = new Set([
+    'text-generation', 'conversational', 'text2text-generation', 'chat',
+    'sentence'
+  ]);
   if (model.pipeline_tag && allowedPipelines.has(model.pipeline_tag)) return true;
   // tags array may contain 'conversational' or 'chat'
   if (Array.isArray(model.tags)) {
@@ -362,7 +365,7 @@ function isModelChatCapable(model) {
   // fallback heuristics in id/name: look for chat, conversational, dialog, instruct
   const id = (model.id || '').toLowerCase();
   const name = (model.name || '').toLowerCase();
-  const heuristics = ['chat', 'conversational', 'dialog', 'instruct', 'instruction'];
+  const heuristics = ['chat', 'conversational', 'dialog', 'instruct', 'instruction', 'sentence'];
   for (const h of heuristics) {
     if (id.includes(h) || name.includes(h)) return true;
   }
@@ -386,7 +389,7 @@ function getFallbackModels() {
     {
       id: 'mistralai/Mistral-7B-v0.1',
       name: 'Mistral 7B',
-      vendor: 'Mistral AI', 
+      vendor: 'Mistral AI',
       size: '7.3B',
       slashCommand: 'mistral',
       description: 'Highly efficient, outperforms larger models with innovative architecture'
