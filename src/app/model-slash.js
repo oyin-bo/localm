@@ -40,6 +40,8 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
   // Create the menu DOM element
   const menu = document.createElement('div');
   menu.className = "slash-menu";
+  // Start hidden; provider may only control positioning. We'll manage visibility.
+  menu.style.display = 'none';
 
   // Function to rebuild menu content
   function rebuildMenu() {
@@ -102,31 +104,49 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
     menu.appendChild(modelList);
   }
 
-  // Handle menu clicks
-  menu.addEventListener('click', async (e) => {
-    if (!e.target || !(e.target instanceof Element)) return;
-    const target = e.target.closest('li[data-model-id]');
-    if (!target || !(target instanceof HTMLElement)) return;
-    
-    const modelId = target.dataset.modelId;
-    if (modelId && onSlashCommand) {
-      // Hide the menu first
-      provider.hide();
-      
-      try {
-        await onSlashCommand(modelId);
-      } catch (error) {
-        console.error('Error executing slash command:', error);
+  // We'll attach click handler after potential wrapping defined later
+
+  // Track current editor view for mutation operations (removing the slash)
+  let currentView = null;
+
+  // Helper: check if cursor is directly after a solitary '/'
+  function hasTriggerSlash(view) {
+    if (!view) return false;
+    const { state } = view;
+    const { from } = state.selection;
+    if (from === 0) return false;
+    const $pos = state.doc.resolve(from);
+    // Get char before cursor
+    const prevChar = state.doc.textBetween(from - 1, from, '\n', '\n');
+    if (prevChar !== '/') return false;
+    // Optional: ensure it's start of line or preceded by space (avoid paths / urls)
+    const beforePrev = from - 2 >= 0 ? state.doc.textBetween(from - 2, from - 1, '\n', '\n') : '';
+    if (beforePrev && /[\w/]/.test(beforePrev)) return false; // part of word or // sequence
+    return true;
+  }
+
+  // Helper: remove the trigger slash silently
+  function removeTriggerSlash(view) {
+    try {
+      if (!view) return;
+      const { state } = view;
+      const { from } = state.selection;
+      if (from === 0) return;
+      const prevChar = state.doc.textBetween(from - 1, from, '\n', '\n');
+      if (prevChar === '/') {
+        const tr = state.tr.delete(from - 1, from);
+        view.dispatch(tr);
       }
+    } catch (e) {
+      // ignore
     }
-  });
+  }
 
   // Create the slash provider
   const provider = new SlashProvider({
     content: menu,
-    // Show the menu when the last character before caret is '/'
     shouldShow(view) {
-      return provider.getContent(view)?.endsWith('/') ?? false;
+      return hasTriggerSlash(view);
     },
     offset: 15,
   });
@@ -138,6 +158,7 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
     if (key === 'Escape' || key === 'Esc' || key === 27) {
       try {
         provider.hide();
+        removeTriggerSlash(currentView);
       } catch (err) {
         // ignore
       }
@@ -151,18 +172,62 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
     ctx.set(modelSlash.key, {
       view: () => ({
         update: (view, prevState) => {
+          currentView = view;
           // Rebuild menu content on each update to reflect current models
           rebuildMenu();
           provider.update(view, prevState);
+          if (hasTriggerSlash(view)) {
+            menu.style.display = '';
+          } else {
+            menu.style.display = 'none';
+          }
         },
         destroy: () => {
           provider.destroy();
           // cleanup the document key listener
           document.removeEventListener('keydown', onKeyDown);
+          document.removeEventListener('mousedown', onOutsideMouseDown, true);
         },
       }),
     });
   };
+
+  // Expose a public helper so external code (onSlashCommand) can explicitly close & clean
+  function finalize() {
+    provider.hide();
+    removeTriggerSlash(currentView);
+    menu.style.display = 'none';
+  }
+
+  // Wrapped handler: no finalize here so UI hides immediately on click
+  const wrapped = onSlashCommand ? async (modelId) => {
+    try {
+      await onSlashCommand(modelId);
+    } catch (error) {
+      console.error('Error executing slash command:', error);
+    }
+  } : null;
+
+  // Attach click handler now
+  menu.addEventListener('click', async (e) => {
+    if (!e.target || !(e.target instanceof Element)) return;
+    const target = e.target.closest('li[data-model-id]');
+    if (!target || !(target instanceof HTMLElement)) return;
+    const modelId = target.dataset.modelId;
+    if (!modelId) return;
+    // Hide immediately
+    finalize();
+    if (wrapped) await wrapped(modelId);
+  });
+
+  // Outside click handler to dismiss menu
+  function onOutsideMouseDown(e) {
+    if (menu.style.display === 'none') return;
+    if (e.target instanceof Node && !menu.contains(e.target)) {
+      finalize();
+    }
+  }
+  document.addEventListener('mousedown', onOutsideMouseDown, true);
 
   return {
     plugin: modelSlash,
