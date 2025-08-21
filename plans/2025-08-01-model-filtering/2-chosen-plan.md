@@ -4,7 +4,7 @@ This document contains the final, actionable implementation plan for the hybrid 
 - Phase 1: fast, conservative pre-filter using heuristics to remove obvious non-chat models.
 - Phase 2: full-fidelity classification by fetching each candidate repo's `config.json` (concurrently) to extract `model_type` and `architectures`, classify models, and surface results to the UI.
 
-This phase is implemented as a new worker action `loadChatModels` that performs all network work and streams progress back to the main thread. No local caching (localStorage) is implemented in this phase — everything is live and online.
+This phase is implemented as a new worker action `listChatModels` that performs all network work and streams progress back to the main thread. No local caching (localStorage) is implemented in this phase — everything is live and online.
 
 ## Goals
 
@@ -14,8 +14,8 @@ This phase is implemented as a new worker action `loadChatModels` that performs 
 
 ## High-level flow
 
-1. Main thread requests `loadChatModels` from the worker (optionally with params: concurrency, maxCandidates, hfToken).
-2. Worker fetches the HF listing (or uses a passed list), runs a fast pre-filter (no network) to remove obvious non-candidates.
+1. Main thread requests `listChatModels` from the worker (optionally with params: concurrency, maxCandidates, hfToken).
+2. Worker fetches the HF listing (or uses a passed list). The initial fetch should attempt to pull up to 5,000 models in batches using the HF API pagination (or stop earlier if the listing is exhausted); after assembling the candidate set it runs a fast pre-filter (no network) to remove obvious non-candidates.
 3. Worker runs concurrent config fetches for survivors and classifies each repo using `model_type` and `architectures`.
 4. Worker streams progress messages to the main thread for each significant event (prefiltered, config_fetching, classified, auth, error).
 5. Worker returns final array of `ModelEntry` objects and metadata.
@@ -24,16 +24,16 @@ This phase is implemented as a new worker action `loadChatModels` that performs 
 ## Worker action contract
 
 - Request (main -> worker):
-	{ action: "loadChatModels", id: string, params?: { maxCandidates?: number, concurrency?: number, hfToken?: string|null, timeoutMs?: number } }
+	{ action: "listChatModels", id: string, params?: { maxCandidates?: number, concurrency?: number, hfToken?: string|null, timeoutMs?: number } }
 
 - Progress (worker -> main), streamed:
-	{ action: "loadChatModels:progress", id, modelId, status: "prefiltered"|"config_fetching"|"classified"|"auth"|"error", delta?: Partial<ModelEntry>, ts }
+	{ action: "listChatModels:progress", id, modelId, status: "prefiltered"|"config_fetching"|"classified"|"auth"|"error", delta?: Partial<ModelEntry>, ts }
 
 - Final result (worker -> main):
-	{ action: "loadChatModels:done", id, models: ModelEntry[], meta: { fetched:number, filtered:number, errors: Array<{modelId, code, message}>, durationMs } }
+	{ action: "listChatModels:done", id, models: ModelEntry[], meta: { fetched:number, filtered:number, errors: Array<{modelId, code, message}>, durationMs } }
 
 - Error (worker -> main):
-	{ action: "loadChatModels:error", id, code?, message }
+	{ action: "listChatModels:error", id, code?, message }
 
 All messages must be serializable JSON objects.
 
