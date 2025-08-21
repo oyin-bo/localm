@@ -8,9 +8,9 @@ import {
   rootCtx
 } from '@milkdown/core';
 import { Crepe } from '@milkdown/crepe';
-import { blockEdit } from '@milkdown/crepe/feature/block-edit';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 
+import { addModelSlashToCrepe, modelSlash } from './model-slash';
 import { outputMessage } from './output-message';
 
 import "@milkdown/crepe/theme/common/style.css";
@@ -69,15 +69,15 @@ export async function initMilkdown({
     },
     featureConfigs: {
       [Crepe.Feature.Placeholder]: {
-        text: 'Prompt (or /slash for model list)...',
+        text: 'Prompt or /model...',
         mode: 'block'
       }
     }
   });
   // Create input editor immediately so the UI is responsive.
-  const chatInputEditor = await crepeInput.create();
+  const chatInputEditor = (await crepeInput.create()).use(modelSlash);
 
-  // Fetch models in background and add BlockEdit when ready
+  // Fetch models in background and add model slash plugin when ready
   (async () => {
     try {
       const { id, promise, cancel } = await worker.listChatModels({}, undefined);
@@ -94,27 +94,21 @@ export async function initMilkdown({
         id: e.id || e.modelId || '',
         name: e.name || (e.id || e.modelId || '').split('/').pop(),
         size: '',
-        slashCommand: (e.id || e.modelId || '').split('/').pop(),
-        pipeline_tag: e.pipeline_tag || null,
         requiresAuth: e.classification === 'auth-protected'
       }));
 
       outputMessage('Models discovered: **' + availableModels.length + '**');
 
-      crepeInput.addFeature(blockEdit, {
-        buildMenu: (groupBuilder) => {
-          const modelsGroup = groupBuilder.addGroup('models', 'Models');
-          (availableModels || []).forEach((model) => modelsGroup.addItem(model.slashCommand, {
-            label: `${model.name} ${model.size ? `(${model.size})` : ''}`,
-            icon: '🤖',
-            onRun: () => {
-              if (onSlashCommand) onSlashCommand(model.id);
-            }
-          }));
+      // Add model slash plugin to the editor
+      await addModelSlashToCrepe(crepeInput, availableModels, {
+        onSlashCommand: (modelId) => {
+          if (onSlashCommand) {
+            return onSlashCommand(modelId);
+          }
         }
       });
     } catch (e) {
-      console.warn('Failed to load models for BlockEdit via worker:', e);
+      console.warn('Failed to load models for slash plugin via worker:', e);
     }
   })();
 

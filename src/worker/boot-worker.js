@@ -85,6 +85,7 @@ export function bootWorker() {
     function flushBatch() {
       if (!batchBuffer || batchBuffer.length === 0) return;
       try {
+        console.log('Loading: ', batchBuffer[batchBuffer.length - 1]);
         self.postMessage({ id, type: 'progress', batch: true, items: batchBuffer.splice(0) });
       } catch (e) {}
       if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
@@ -101,7 +102,6 @@ export function bootWorker() {
     activeTasks.set(id, { abort: () => { try { iterator.return(); } catch (e) {} } });
     try {
       for await (const delta of iterator) {
-        console.info('loading ', delta);
         try { enqueueProgress(delta); } catch (e) {}
         if (delta && delta.status === 'done') {
           sawDone = true;
