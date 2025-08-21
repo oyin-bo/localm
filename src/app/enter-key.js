@@ -36,9 +36,17 @@ export function makeEnterPlugins({ workerConnection }) {
       shortcuts: 'Enter',
       command: (ctx) => {
         const commands = ctx.get(commandsCtx);
-        return () => commands.call(myEnterCommand.key);
+        return () => {
+          // Check if slash menu is open first
+          const slashMenu = document.querySelector('.milkdown-slash-menu[data-show="true"]');
+          if (slashMenu) {
+            // Let the slash menu handle Enter
+            return false;
+          }
+          return commands.call(myEnterCommand.key);
+        };
       },
-      priority: 100,
+      priority: 50, // Lower priority so slash menu can intercept first
     },
   });
 
@@ -60,6 +68,12 @@ export function setupCrepeEnterKey(crepeInput, workerConnection) {
     if (view.dom) {
       view.dom.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+          // Check if slash menu is open - if so, let it handle Enter
+          const slashMenu = document.querySelector('.milkdown-slash-menu[data-show="true"]');
+          if (slashMenu) {
+            return false; // Don't prevent default, let slash menu handle it
+          }
+          
           e.preventDefault();
           
           // Get markdown using the underlying editor's serializer

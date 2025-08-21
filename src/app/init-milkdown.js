@@ -7,9 +7,12 @@ import {
   editorViewOptionsCtx,
   rootCtx
 } from '@milkdown/core';
+import { Crepe } from '@milkdown/crepe';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { slashFactory } from "@milkdown/plugin-slash";
-import { Crepe } from '@milkdown/crepe';
+
+import "@milkdown/crepe/theme/common/style.css";
+import "@milkdown/crepe/theme/frame.css";
 
 /**
  * @typedef {{
@@ -49,22 +52,45 @@ export async function initMilkdown({
     root: chatInput,
     defaultValue: '',
     features: {
-      [Crepe.Feature.BlockEdit]: false, // Disable slash menu and block editing
+      [Crepe.Feature.BlockEdit]: true, // Enable slash menu
       [Crepe.Feature.Placeholder]: true,
       [Crepe.Feature.Cursor]: true,
       [Crepe.Feature.ListItem]: true,
       [Crepe.Feature.CodeMirror]: true,
       // Disable features not needed for chat input
-      [Crepe.Feature.ImageBlock]: false,
-      [Crepe.Feature.Table]: false,
-      [Crepe.Feature.Latex]: false,
-      [Crepe.Feature.Toolbar]: false,
-      [Crepe.Feature.LinkTooltip]: false
+      [Crepe.Feature.ImageBlock]: true,
+      [Crepe.Feature.Table]: true,
+      [Crepe.Feature.Latex]: true,
+      [Crepe.Feature.Toolbar]: true,
+      [Crepe.Feature.LinkTooltip]: true
     },
     featureConfigs: {
       [Crepe.Feature.Placeholder]: {
         text: 'Start typing...',
         mode: 'block'
+      },
+      [Crepe.Feature.BlockEdit]: {
+        textGroup: {
+          label: 'Text',
+          text: null, // Hide /text option
+          h1: { label: 'Heading', icon: '#' },
+          h2: null, h3: null, h4: null, h5: null, h6: null, // Hide other headings
+          quote: { label: 'Quote', icon: '>' },
+          divider: null
+        },
+        listGroup: {
+          label: 'Lists',
+          bulletList: { label: 'List', icon: '•' },
+          orderedList: { label: 'Numbered', icon: '1.' },
+          taskList: null
+        },
+        advancedGroup: {
+          label: 'Code',
+          codeBlock: { label: 'Code', icon: '`' },
+          image: null,
+          table: null,
+          math: null
+        }
       }
     }
   });
