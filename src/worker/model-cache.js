@@ -45,7 +45,7 @@ export class ModelCache {
       let candidates = ['webgpu', 'gpu', 'wasm'];
       // candidates = ['gpu', 'wasm'];
       candidates = candidates.slice(candidates.indexOf(this.backend || 'wasm'));
-      candidates = ['auto', 'wasm'];
+      candidates = ['auto'];// , 'wasm'];
 
       let errs = [];
       console.log('Trying candidates ', candidates);

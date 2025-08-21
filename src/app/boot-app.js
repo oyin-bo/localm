@@ -24,7 +24,7 @@ export async function bootApp() {
     outputMessage(
       'transformers.js\n\n```JSON\n' + JSON.stringify(env, null, 2) + '\n```');
     const models = await worker.listModels();
-    outputMessage('Available models: ' + models.join(', '));
+    //outputMessage('Available models: ' + models.join(', '));
   });
 
   const { 

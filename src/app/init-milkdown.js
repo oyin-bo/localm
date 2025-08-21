@@ -103,9 +103,10 @@ export async function initMilkdown({
           // Put models under a dedicated group to avoid clashing with built-ins
           const modelsGroup = groupBuilder.addGroup('models', 'Models');
           availableModels.forEach((model) => {
-            modelsGroup.addItem(model.slashCommand, {
+            // Use a unique key combining command and model id to avoid duplicate-key warnings
+            modelsGroup.addItem(`${model.slashCommand}-${model.id}`, {
               label: `${model.name} (${model.size})`,
-              icon: '🤖',
+        icon: model.requiresAuth ? '🔒' : '🤖',
               onRun: () => {
                 if (onSlashCommand) onSlashCommand(model.id);
               }

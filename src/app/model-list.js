@@ -10,6 +10,7 @@
  *   description: string,
  *   downloads?: number,
  *   pipeline_tag?: string
+ *   requiresAuth?: boolean
  * }} ModelInfo
  */
 
@@ -41,7 +42,8 @@ export async function fetchBrowserModels() {
     
     // Fetch models with transformers.js library tag, sorted by downloads
     const response = await fetch(
-      'https://huggingface.co/api/models?library=transformers.js&sort=downloads&direction=-1&limit=100'
+      // full=true returns cardData/private/gated so we can detect auth reliably
+      'https://huggingface.co/api/models?library=transformers.js&sort=downloads&direction=-1&limit=100&full=true'
     );
     
     if (!response.ok) {
@@ -53,7 +55,7 @@ export async function fetchBrowserModels() {
     
     // Filter and process models
     const processedModels = rawModels
-      .filter(isModelMobileCapable)
+      .filter(isModelChatCapable)
       .map(processModelData)
       .filter(Boolean) // Remove any null results
       .slice(0, 20); // Limit to top 20 models
@@ -78,7 +80,7 @@ export async function fetchBrowserModels() {
  * @param {any} model - Raw model data from HF API
  * @returns {boolean}
  */
-function isModelMobileCapable(model) {
+function isModelChatCapable(model) {
   // Skip if no model ID
   if (!model.id) return false;
   
@@ -90,16 +92,9 @@ function isModelMobileCapable(model) {
     return false;
   }
   
-  // Prefer models with certain pipeline tags that work well in browsers
-  const preferredTags = [
-    'text-generation',
-    'text2text-generation', 
-    'feature-extraction',
-    'sentence-similarity',
-    'fill-mask'
-  ];
-  
-  const hasPreferredTag = !model.pipeline_tag || preferredTags.includes(model.pipeline_tag);
+  // Only allow chat/generative pipelines
+  const allowedPipelines = ['text-generation', 'text2text-generation'];
+  const hasAllowedPipeline = model.pipeline_tag && allowedPipelines.includes(model.pipeline_tag);
   
   // Skip certain model types that are less suitable for general text generation
   const excludePatterns = [
@@ -109,12 +104,18 @@ function isModelMobileCapable(model) {
     /audio/i,
     /translation/i,
     /classification/i,
-    /embedding/i
+    /embedding/i,
+    /bert/i,
+    /mpnet/i,
+    /electra/i,
+    /roberta/i,
+    /minilm/i,
+    /sentence-transformers/i
   ];
   
   const isExcluded = excludePatterns.some(pattern => pattern.test(model.id));
   
-  return hasPreferredTag && !isExcluded;
+  return hasAllowedPipeline && !isExcluded;
 }
 
 /**
@@ -171,6 +172,7 @@ function processModelData(model) {
     const vendor = extractVendor(model.id);
     const name = extractModelName(model.id);
     const slashCommand = generateSlashCommand(model.id);
+    const requiresAuth = Boolean(model.gated || model.private || (model.cardData && (model.cardData.gated || model.cardData.private)));
     
     return {
       id: model.id,
@@ -180,7 +182,8 @@ function processModelData(model) {
       slashCommand,
       description: `${formatSize(size)} parameter model from ${vendor}`,
       downloads: model.downloads || 0,
-      pipeline_tag: model.pipeline_tag
+      pipeline_tag: model.pipeline_tag,
+      requiresAuth
     };
   } catch (error) {
     console.warn(`Failed to process model ${model.id}:`, error);
@@ -284,7 +287,8 @@ function getFallbackModels() {
       vendor: 'Microsoft',
       size: '3.8B',
       slashCommand: 'phi3',
-      description: 'Exceptional performance-to-size ratio, strong in reasoning and math'
+  description: 'Exceptional performance-to-size ratio, strong in reasoning and math',
+  requiresAuth: false
     },
     {
       id: 'mistralai/Mistral-7B-v0.1',
@@ -292,7 +296,8 @@ function getFallbackModels() {
       vendor: 'Mistral AI', 
       size: '7.3B',
       slashCommand: 'mistral',
-      description: 'Highly efficient, outperforms larger models with innovative architecture'
+  description: 'Highly efficient, outperforms larger models with innovative architecture',
+  requiresAuth: false
     },
     {
       id: 'Xenova/distilgpt2',
@@ -300,7 +305,8 @@ function getFallbackModels() {
       vendor: 'Xenova',
       size: '82M',
       slashCommand: 'distilgpt2',
-      description: 'Extremely fast and lightweight for quick prototyping'
+  description: 'Extremely fast and lightweight for quick prototyping',
+  requiresAuth: false
     },
     {
       id: 'openai-community/gpt2',
@@ -308,7 +314,8 @@ function getFallbackModels() {
       vendor: 'OpenAI',
       size: '124M',
       slashCommand: 'gpt2',
-      description: 'Foundational model for reliable lightweight text generation'
+  description: 'Foundational model for reliable lightweight text generation',
+  requiresAuth: false
     }
   ];
 }
