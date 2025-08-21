@@ -15,6 +15,8 @@
 
 import { slashFactory, SlashProvider } from '@milkdown/plugin-slash';
 
+import './model-slash.css';
+
 /**
  * @typedef {{
  *  id: string,
@@ -38,19 +40,6 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
   // Create the menu DOM element
   const menu = document.createElement('div');
   menu.className = "slash-menu";
-  menu.style.cssText = `
-    position: absolute;
-    padding: 0;
-    background: white;
-    border: 1px solid #e5e7eb;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    border-radius: 8px;
-    font-size: 14px;
-    max-height: 256px;
-    overflow-y: auto;
-    min-width: 256px;
-    z-index: 50;
-  `;
 
   // Function to rebuild menu content
   function rebuildMenu() {
@@ -76,39 +65,31 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
 
     // Create model list
     const modelList = document.createElement('ul');
-    modelList.style.cssText = "margin: 0; padding: 0; list-style: none;";
-    
+    modelList.className = 'model-list';
+
     availableModels.forEach((model, index) => {
       const item = document.createElement('li');
-      item.style.cssText = "padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #f3f4f6;";
+      item.className = 'model-entry';
       item.dataset.modelId = model.id;
-      
-      // Add hover effects
-      item.addEventListener('mouseenter', () => {
-        item.style.backgroundColor = '#f0f9ff';
-      });
-      item.addEventListener('mouseleave', () => {
-        item.style.backgroundColor = '';
-      });
-      
+
       // Create icon
       const icon = document.createElement('span');
+      icon.className = 'model-icon';
       icon.textContent = model.requiresAuth ? '🔒' : '🤖';
-      icon.style.fontSize = '18px';
       
       // Create text container
       const textContainer = document.createElement('div');
-      textContainer.style.cssText = "flex: 1; min-width: 0;";
-      
+      textContainer.className = 'model-text-container';
+
       const name = document.createElement('div');
+      name.className = 'name';
       name.textContent = model.name;
-      name.style.cssText = "font-weight: 500; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;";
       textContainer.appendChild(name);
       
       if (model.size) {
         const subtitle = document.createElement('div');
+        subtitle.className = 'size';
         subtitle.textContent = `(${model.size})`;
-        subtitle.style.cssText = "font-size: 12px; color: #6b7280;";
         textContainer.appendChild(subtitle);
       }
       
@@ -118,16 +99,11 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
       // Add auth indicator if needed
       if (model.requiresAuth) {
         const authSpan = document.createElement('span');
+        authSpan.className = 'auth';
         authSpan.textContent = "Auth Required";
-        authSpan.style.cssText = "font-size: 10px; color: #ea580c; background: #fed7aa; padding: 2px 6px; border-radius: 4px;";
         item.appendChild(authSpan);
       }
-      
-      // Remove bottom border from last item
-      if (index === availableModels.length - 1) {
-        item.style.borderBottom = 'none';
-      }
-      
+
       modelList.appendChild(item);
     });
     
@@ -163,6 +139,21 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
     offset: 8,
   });
 
+  // Hide on Escape key — attach a document listener and remove it on destroy
+  function onKeyDown(e) {
+    if (!e) return;
+    const key = e.key || e.keyCode;
+    if (key === 'Escape' || key === 'Esc' || key === 27) {
+      try {
+        provider.hide();
+      } catch (err) {
+        // ignore
+      }
+    }
+  }
+
+  document.addEventListener('keydown', onKeyDown);
+
   // Configuration function for the slash plugin
   const slashConfig = (ctx) => {
     ctx.set(modelSlash.key, {
@@ -174,6 +165,8 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
         },
         destroy: () => {
           provider.destroy();
+          // cleanup the document key listener
+          document.removeEventListener('keydown', onKeyDown);
         },
       }),
     });

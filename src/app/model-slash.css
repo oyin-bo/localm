@@ -1,0 +1,66 @@
+.slash-menu {
+  position: absolute;
+  padding: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  font-size: 14px;
+  max-height: 256px;
+  overflow-y: auto;
+  min-width: 256px;
+  z-index: 50;
+
+  .model-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    .model-entry {
+      padding: 8px 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #f3f4f6;
+
+      .model-icon {
+        font-size: 90%;
+      }
+
+      .model-text-container {
+        flex: 1;
+        min-width: 0;
+
+        .name {
+          font-weight: 500;
+          color: #111827;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .size {
+          font-size: 12px;
+          color: #6b7280;
+        }
+      }
+
+      .auth {
+        font-size: 10px;
+        color: #ea580c;
+        background: #fed7aa;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+    }
+
+    .model-entry:hover {
+      background-color: #f0f9ff;
+    }
+
+    .model-entry:last-child {
+      border-bottom: none;
+    }
+  }
+}
