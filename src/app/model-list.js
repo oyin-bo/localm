@@ -1,6 +1,6 @@
 // @ts-check
 
-import fallbackModels from '../model-cache-filtered.json';
+import { workerConnection } from './worker-connection.js';
 
 /**
  * @typedef {{
@@ -38,124 +38,40 @@ const MOBILE_SIZE_THRESHOLD = 15; // Models under 15B are considered mobile-capa
  * Fetch models from Hugging Face Hub with transformers.js compatibility
  * @returns {Promise<ModelInfo[]>}
  */
-export async function fetchBrowserModels() {
-  // Check cache first
-  const now = Date.now();
-  if (modelCache && (now - cacheTimestamp) < CACHE_DURATION) {
-    return modelCache;
-  }
-
+export async function fetchBrowserModels(params = {}) {
+  // Worker-backed implementation: call worker.listChatModels and return final models.
   try {
-    console.log('Fetching transformers.js compatible models from Hugging Face Hub in batches...');
-
-    const batchSize = 1000;
-    const batchCount = 5; // 5 consecutive batches of 1000
-    let allRaw = [];
-
-    for (let i = 0; i < batchCount; i++) {
-      const skip = i * batchSize;
-      const url = `https://huggingface.co/api/models?library=transformers.js&sort=downloads&direction=-1&limit=${batchSize}&skip=${skip}&full=true`;
-      try {
-        // fetch sequentially to avoid surprises with HF rate limits
-        // eslint-disable-next-line no-await-in-loop
-        const res = await fetch(url);
-        if (!res.ok) {
-          console.warn(`HF batch ${i + 1} returned ${res.status}; stopping further batches`);
-          break;
-        }
-        // eslint-disable-next-line no-await-in-loop
-        const batch = await res.json();
-        if (!Array.isArray(batch) || batch.length === 0) {
-          console.log(`HF batch ${i + 1} returned 0 models; stopping`);
-          break;
-        }
-        console.log(`batch ${i + 1} -> ${batch.length} models`);
-        allRaw = allRaw.concat(batch);
-        if (batch.length < batchSize) break; // last page
-      } catch (err) {
-        console.warn(`Error fetching HF batch ${i + 1}:`, err);
-        break;
-      }
-    }
-
-    // dedupe by id
-    const seen = new Set();
-    const dedup = allRaw.filter(m => m && m.id && (!seen.has(m.id) ? (seen.add(m.id) || true) : false));
-    console.log(`fetched unique ${dedup.length} models`);
-
-    // Process models: detect required files (ONNX + tokenizer), determine gating
-    const processed = dedup.map(m => {
-      try {
-        const { hasOnnx, hasTokenizer, missingFiles, missingReason } = detectRequiredFiles(m);
-        const requiresAuth = Boolean(m.gated || m.private || (m.cardData && (m.cardData.gated || m.cardData.private)));
-        const base = processModelData(m);
-        if (!base) return null;
-        return Object.assign({}, base, {
-          requiresAuth: !!requiresAuth,
-          hasOnnx: !!hasOnnx,
-          hasTokenizer: !!hasTokenizer,
-          missingFiles: !!missingFiles,
-          missingReason: missingReason || '',
-          downloads: m.downloads || 0,
-          tags: Array.isArray(m.tags) ? m.tags.slice() : []
-        });
-      } catch (e) {
-        return null;
-      }
-    }).filter(m => m !== null);
-
-    // Keep only models that have both ONNX and tokenizer files AND support chat
-    const withFiles = processed.filter(p => p && p.hasOnnx && p.hasTokenizer && isModelChatCapable(p));
-
-    // Sort by downloads desc
-    withFiles.sort((a, b) => ((b && b.downloads) || 0) - ((a && a.downloads) || 0));
-
-    const auth = withFiles.filter(m => m && m.requiresAuth).slice(0, 10).map(x => x);
-    const pub = withFiles.filter(m => m && !m.requiresAuth).slice(0, 10).map(x => x);
-
-    const final = [...auth, ...pub];
-
-    modelCache = final;
-    cacheTimestamp = now;
-    // Persist filtered list to localStorage as a fallback for offline or HF failures
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const payload = JSON.stringify({ ts: now, models: final });
-        localStorage.setItem(STORAGE_KEY, payload);
-      }
-    } catch (e) {
-      // ignore storage errors
-    }
-
-    console.log(`Selected ${auth.length} auth + ${pub.length} public models (total ${final.length})`);
-    if (final.length) return final;
-  } catch (error) {
-    console.error('Failed to fetch models from Hugging Face Hub:', error);
-    // Try to restore from persisted cache before returning static fallback
+    const wc = workerConnection();
+  const { id, promise, cancel } = await wc.listChatModels(params, /* onProgress */ undefined);
+    // wait for final result (no caching, no localStorage)
+    const res = await promise;
+    // Map worker ModelEntry -> UI ModelInfo minimal shape
+    const mapped = Array.isArray(res.models ? res.models : res)
+      ? (res.models || res).map(e => ({
+        id: e.id,
+        name: e.name || (e.id || '').split('/').pop(),
+        vendor: extractVendor(e.id || ''),
+        size: '',
+        slashCommand: generateSlashCommand(e.id || ''),
+        description: '',
+        pipeline_tag: e.pipeline_tag || null,
+        requiresAuth: e.classification === 'auth-protected'
+      }))
+      : [];
+    return mapped.length ? mapped : FALLBACK_MODELS;
+  } catch (err) {
+    // on error, return small fallback list
+    console.warn('fetchBrowserModels: worker error, returning fallback', err && err.message ? err.message : err);
+    return FALLBACK_MODELS;
   }
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.models)) {
-          const age = Date.now() - (parsed.ts || 0);
-          if (age < STORAGE_TTL) {
-            console.warn('Restoring models from localStorage cache (age ' + Math.round(age / 1000) + 's)');
-            modelCache = parsed.models;
-            cacheTimestamp = Date.now();
-            return modelCache;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    // ignore parse/storage errors
-  }
-
-  // Return fallback models if API fails and no persisted cache
-  return fallbackModels;
 }
+
+// Small fallback list used when worker fails or times out
+const FALLBACK_MODELS = [
+  { id: 'microsoft/Phi-3-mini-4k-instruct', name: 'Phi-3 Mini', vendor: 'Microsoft', size: '3.8B', slashCommand: 'phi3', description: 'Fallback Phi-3 Mini' },
+  { id: 'mistralai/Mistral-7B-v0.1', name: 'Mistral 7B', vendor: 'Mistral AI', size: '7.3B', slashCommand: 'mistral', description: 'Fallback Mistral' },
+  { id: 'Xenova/distilgpt2', name: 'DistilGPT-2', vendor: 'Xenova', size: '82M', slashCommand: 'distilgpt2', description: 'Fallback DistilGPT2' }
+];
 
 /**
  * Check if a model is suitable for mobile/browser use

@@ -10,8 +10,6 @@ import {
 import { Crepe } from '@milkdown/crepe';
 import { blockEdit } from '@milkdown/crepe/feature/block-edit';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
-import { slashFactory } from "@milkdown/plugin-slash";
-import { fetchBrowserModels } from './model-list.js';
 
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
@@ -21,7 +19,8 @@ import "@milkdown/crepe/theme/frame.css";
  *  chatLog: HTMLElement,
  *  chatInput: HTMLElement,
  *  inputPlugins?: any[],
- *  onSlashCommand?: (command: string) => void | boolean | Promise<void | boolean>
+ *  onSlashCommand?: (command: string) => void | boolean | Promise<void | boolean>,
+ *  worker?: any
  * }} InitMilkdownOptions
  */
 
@@ -32,18 +31,14 @@ export async function initMilkdown({
   chatLog,
   chatInput,
   inputPlugins = [], // Keep for backward compatibility but not used for Crepe
-  onSlashCommand
+  onSlashCommand,
+  worker
 }) {
   if (chatLog) chatLog.textContent = 'Loading Milkdown...';
 
   if (chatLog) chatLog.innerHTML = '';
   if (chatInput) chatInput.innerHTML = '';
 
-  // Fetch available models for slash menu
-  console.log('Starting to fetch browser models...');
-  const availableModels = await fetchBrowserModels();
-  console.log(`Loaded ${availableModels.length} models for slash menu`);
-  console.log('Available models:', availableModels);
 
   // Create read-only editor in .chat-log
   const chatLogEditor = await Editor.make()
@@ -61,12 +56,11 @@ export async function initMilkdown({
     defaultValue: '',
     features: {
       // Do NOT enable BlockEdit here; we'll add it later after models load
+      [Crepe.Feature.BlockEdit]: false,
       [Crepe.Feature.Placeholder]: true,
       [Crepe.Feature.Cursor]: true,
-      [Crepe.Feature.BlockEdit]: false,
       [Crepe.Feature.ListItem]: true,
       [Crepe.Feature.CodeMirror]: true,
-      // Disable features not needed for chat input
       [Crepe.Feature.ImageBlock]: true,
       [Crepe.Feature.Table]: true,
       [Crepe.Feature.Latex]: true,
@@ -80,25 +74,28 @@ export async function initMilkdown({
       }
     }
   });
-
-  // Dynamically add BlockEdit feature now that models are available.
-  crepeInput.addFeature(blockEdit, {
-    // Provide only a single 'models' group populated from availableModels
-    buildMenu: (groupBuilder) => {
-      const modelsGroup = groupBuilder.addGroup('models', 'Models');
-      availableModels.forEach((model) => {
-        modelsGroup.addItem(model.slashCommand, {
-          label: `${model.name} (${model.size})`,
-          icon: '🤖',
-          onRun: () => {
-            if (onSlashCommand) onSlashCommand(model.id);
-          }
-        });
-      });
-    }
-  });
-
+  // Create input editor immediately so the UI is responsive.
   const chatInputEditor = await crepeInput.create();
+
+  // Fetch models in background and add BlockEdit when ready
+  (async () => {
+    try {
+      const { id, promise, cancel } = await worker.listChatModels({}, undefined);
+      const out = await promise;
+      const entries = Array.isArray(out.models ? out.models : out) ? (out.models || out) : [];
+      const availableModels = entries.map(e => ({ id: e.id, name: e.name || (e.id || '').split('/').pop(), size: '', slashCommand: (e.id || '').split('/').pop(), pipeline_tag: e.pipeline_tag || null, requiresAuth: e.classification === 'auth-protected' }));
+
+      // Add BlockEdit feature now that models are available
+      crepeInput.addFeature(blockEdit, {
+        buildMenu: (groupBuilder) => {
+          const modelsGroup = groupBuilder.addGroup('models', 'Models');
+          (availableModels || []).forEach((model) => modelsGroup.addItem(model.slashCommand, { label: `${model.name} ${model.size ? `(${model.size})` : ''}`, icon: '🤖', onRun: () => { if (onSlashCommand) onSlashCommand(model.id); } }));
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to load models for BlockEdit via worker:', e);
+    }
+  })();
 
   // Auto-focus the Crepe input editor when ready
   try {

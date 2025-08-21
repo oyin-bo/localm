@@ -101,15 +101,16 @@ export function bootWorker() {
     activeTasks.set(id, { abort: () => { try { iterator.return(); } catch (e) {} } });
     try {
       for await (const delta of iterator) {
+        console.info('loading ', delta);
         try { enqueueProgress(delta); } catch (e) {}
         if (delta && delta.status === 'done') {
           sawDone = true;
           // flush any remaining progress messages synchronously
           try { flushBatch(); } catch (e) {}
           try { self.postMessage({ id, type: 'response', result: { models: delta.models, meta: delta.meta } }); } catch (e) {}
-          break;
         }
       }
+
       if (!sawDone) {
         // iterator exited early (likely cancelled)
         try { flushBatch(); } catch (e) {}

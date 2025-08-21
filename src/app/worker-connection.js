@@ -8,9 +8,9 @@ export function workerConnection() {
   const connection = {
     loaded: workerLoaded.then(worker => ({ env: worker.env })),
     listModels,
-  loadModel,
-  runPrompt,
-  listChatModels
+    loadModel,
+    runPrompt,
+    listChatModels
   };
 
   return connection;
@@ -88,18 +88,27 @@ export function workerConnection() {
    */
   async function listChatModels(params = {}, onProgress) {
     await workerLoaded;
-    const { send, pending, worker } = await workerLoaded;
-    return new Promise((resolve, reject) => {
-      const id = String(Math.random()).slice(2);
-      pending.set(id, { resolve, reject, onProgress });
-      const msg = Object.assign({}, params, { type: 'listChatModels', id });
+    const { worker, pending } = await workerLoaded;
+    const id = String(Math.random()).slice(2);
+    let resolved = false;
+    const promise = new Promise((resolve, reject) => {
+      pending.set(id, { resolve: (res) => { resolved = true; resolve(res); }, reject, onProgress });
       try {
-        worker.postMessage(msg);
+        worker.postMessage(Object.assign({}, params, { type: 'listChatModels', id }));
       } catch (err) {
         pending.delete(id);
-        return reject(err);
+        reject(err);
       }
     });
+
+    const cancel = () => {
+      try {
+        if (!resolved) worker.postMessage({ type: 'cancelListChatModels', id });
+      } catch (e) {}
+      pending.delete(id);
+    };
+
+    return { id, promise, cancel };
   }
 
   /** @param {string} modelName */

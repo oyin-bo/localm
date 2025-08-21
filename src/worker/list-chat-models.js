@@ -6,7 +6,7 @@ export async function* listChatModelsIterator(params = {}) {
   const opts = Object.assign({ maxCandidates: 250, concurrency: 12, hfToken: null, timeoutMs: 10000, maxListing: 5000 }, params || {});
   const { maxCandidates, concurrency, hfToken, timeoutMs, maxListing } = opts;
   const MAX_TOTAL_TO_FETCH = Math.min(maxListing, 5000);
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 1000;
   const RETRIES = 3;
   const BACKOFF_BASE_MS = 200;
 

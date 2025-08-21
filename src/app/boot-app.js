@@ -27,11 +27,12 @@ export async function bootApp() {
     //outputMessage('Available models: ' + models.join(', '));
   });
 
-  const { 
-    chatLogEditor: chatLogEditorInstance, 
+  const {
+    chatLogEditor: chatLogEditorInstance,
     chatInputEditor: chatInputEditorInstance,
-    crepeInput 
+    crepeInput
   } = await initMilkdown({
+    worker,
     chatLog,
     chatInput,
     inputPlugins: makeEnterPlugins({ workerConnection: worker }),
@@ -45,10 +46,10 @@ export async function bootApp() {
       }
     }
   });
-  
+
   chatLogEditor = chatLogEditorInstance;
   chatInputEditor = chatInputEditorInstance;
-  
+
   // Flush any outputs that were buffered before the editor was ready
   flushBufferedOutputs();
 
