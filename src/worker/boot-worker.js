@@ -4,6 +4,7 @@ import { ModelCache } from './model-cache';
 
 export function bootWorker() {
   const modelCache = new ModelCache();
+  let selectedModel = modelCache.knownModels[0];
   // Report starting
   try {
     self.postMessage({ type: 'status', status: 'initializing' });
@@ -29,6 +30,7 @@ export function bootWorker() {
         const { modelName = modelCache.knownModels[0] } = data;
         try {
           const pipe = await modelCache.getModel({ modelName });
+          selectedModel = modelName;
           self.postMessage({ id, type: 'response', result: { model: modelName, status: 'loaded' } });
         } catch (err) {
           self.postMessage({ id, type: 'error', error: String(err) });
@@ -43,7 +45,7 @@ export function bootWorker() {
     }
   }
 
-  async function handleRunPrompt({ prompt, modelName = modelCache.knownModels[0], id, options }) {
+  async function handleRunPrompt({ prompt, modelName = selectedModel, id, options }) {
     try {
       const pipe = await modelCache.getModel({ modelName });
       // run the pipeline

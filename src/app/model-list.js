@@ -92,15 +92,16 @@ export async function fetchBrowserModels() {
           hasTokenizer: !!hasTokenizer,
           missingFiles: !!missingFiles,
           missingReason: missingReason || '',
-          downloads: m.downloads || 0
+      downloads: m.downloads || 0,
+      tags: Array.isArray(m.tags) ? m.tags.slice() : []
         });
       } catch (e) {
         return null;
       }
     }).filter(m => m !== null);
 
-    // Keep only models that have both ONNX and tokenizer files
-    const withFiles = processed.filter(p => p && p.hasOnnx && p.hasTokenizer);
+  // Keep only models that have both ONNX and tokenizer files AND support chat
+  const withFiles = processed.filter(p => p && p.hasOnnx && p.hasTokenizer && isModelChatCapable(p));
 
   // Sort by downloads desc
   withFiles.sort((a, b) => ((b && b.downloads) || 0) - ((a && a.downloads) || 0));
@@ -341,6 +342,31 @@ function detectRequiredFiles(model) {
     else if (!hasTokenizer) reason = 'Missing tokenizer files';
   }
   return { hasOnnx, hasTokenizer, missingFiles: missing, missingReason: reason };
+}
+
+/**
+ * Determine if a model supports chat-style inputs/outputs.
+ * Uses pipeline_tag, tags, and name heuristics as fallback.
+ * @param {any} model
+ */
+function isModelChatCapable(model) {
+  if (!model) return false;
+  const allowedPipelines = new Set(['text-generation', 'conversational', 'text2text-generation', 'chat']);
+  if (model.pipeline_tag && allowedPipelines.has(model.pipeline_tag)) return true;
+  // tags array may contain 'conversational' or 'chat'
+  if (Array.isArray(model.tags)) {
+    for (const t of model.tags) {
+      if (typeof t === 'string' && allowedPipelines.has(t)) return true;
+    }
+  }
+  // fallback heuristics in id/name: look for chat, conversational, dialog, instruct
+  const id = (model.id || '').toLowerCase();
+  const name = (model.name || '').toLowerCase();
+  const heuristics = ['chat', 'conversational', 'dialog', 'instruct', 'instruction'];
+  for (const h of heuristics) {
+    if (id.includes(h) || name.includes(h)) return true;
+  }
+  return false;
 }
 
 /**
