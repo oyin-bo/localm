@@ -3,7 +3,7 @@
 import { makeEnterPlugins, setupCrepeEnterKey } from './enter-key';
 import { initHTML } from './init-html';
 import { initMilkdown } from './init-milkdown';
-import { outputMessage } from './output-message';
+import { outputMessage, flushBufferedOutputs } from './output-message';
 import { workerConnection } from './worker-connection';
 
 import { name, description, version } from '../../package.json';
@@ -49,6 +49,9 @@ export async function bootApp() {
   chatLogEditor = chatLogEditorInstance;
   chatInputEditor = chatInputEditorInstance;
   
+  // Flush any outputs that were buffered before the editor was ready
+  flushBufferedOutputs();
+
   // Setup Enter key handling for the Crepe input editor
   setupCrepeEnterKey(crepeInput, worker);
   document.title = name + ' v' + version;
