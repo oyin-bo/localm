@@ -81,18 +81,6 @@ export async function* listChatModelsIterator(params = {}) {
     }
   }
 
-  async function fetchWithController(url, init = {}) {
-    const c = new AbortController();
-    inFlight.add(c);
-    try {
-      const merged = Object.assign({}, init, { signal: c.signal });
-      const resp = await fetch(url, merged);
-      return resp;
-    } finally {
-      inFlight.delete(c);
-    }
-  }
-
   // helper: fetchConfigForModel (tries multiple paths, per-request timeouts & retries)
   async function fetchConfigForModel(modelId) {
     const urls = [
@@ -106,7 +94,13 @@ export async function* listChatModelsIterator(params = {}) {
         const controller = new AbortController();
         inFlight.add(controller);
         try {
-          const resp = await fetch(url, { signal: controller.signal, headers: hfToken ? { Authorization: `Bearer ${hfToken}` } : {} });
+          const resp = await fetch(
+            url,
+            {
+              signal: controller.signal,
+              headers: hfToken ? { Authorization: `Bearer ${hfToken}` } : {},
+              cache: 'force-cache'
+            });
           if (resp.status === 200) {
             const json = await resp.json();
             counters.configFetch200++;
@@ -192,7 +186,13 @@ export async function* listChatModelsIterator(params = {}) {
       let ok = false;
       for (let attempt = 0; attempt <= RETRIES && !ok; attempt++) {
         try {
-          const resp = await fetch(url, { headers: hfToken ? { Authorization: `Bearer ${hfToken}` } : {} });
+          const resp = await fetch(
+            url,
+            {
+              headers: hfToken ? { Authorization: `Bearer ${hfToken}` } : {},
+              cache: 'force-cache'
+            }
+          );
           if (resp.status === 429) {
             const backoff = BACKOFF_BASE_MS * Math.pow(2, attempt);
             await new Promise(r => setTimeout(r, backoff));
