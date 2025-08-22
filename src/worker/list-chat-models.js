@@ -135,7 +135,10 @@ export async function* listChatModelsIterator(params = {}) {
 
   function classifyModel(rawModel, fetchResult) {
     const id = rawModel.modelId || rawModel.id || rawModel.model || rawModel.modelId;
-    const entry = { id, model_type: null, architectures: null, classification: 'unknown', confidence: 'low', fetchStatus: 'error' };
+    const hasTokenizer = rawModel.hasTokenizer || false;
+    const hasOnnxModel = rawModel.hasOnnxModel || false;
+    const isTransformersJsReady = rawModel.isTransformersJsReady || false;
+    const entry = { id, model_type: null, architectures: null, classification: 'unknown', confidence: 'low', fetchStatus: 'error', hasTokenizer, hasOnnxModel, isTransformersJsReady };
     if (!fetchResult) return entry;
     if (fetchResult.status === 'auth') {
       entry.classification = 'auth-protected';
@@ -148,9 +151,17 @@ export async function* listChatModelsIterator(params = {}) {
       entry.architectures = Array.isArray(fetchResult.architectures) ? fetchResult.architectures : null;
       entry.fetchStatus = 'ok';
       const deny = ['bert','roberta','distilbert','electra','albert','deberta','mobilebert','convbert','sentence-transformers'];
-      const allow = ['gpt2','gptj','gpt_neox','llama','qwen','mistral','phi','gpt','t5','bart','pegasus'];
+      const allow = ['gpt2','gptj','gpt_neox','llama','qwen','qwen2','mistral','phi','phi3','t5','bart','pegasus','gemma','gemma2','gemma3','falcon','bloom','lfm2'];
       if (entry.model_type && deny.includes(entry.model_type)) { entry.classification = 'encoder'; entry.confidence = 'high'; return entry; }
       if (entry.model_type && allow.includes(entry.model_type)) { entry.classification = 'gen'; entry.confidence = 'high'; return entry; }
+      // Also check for model_type variations with underscores/dashes
+      const normalizedModelType = entry.model_type && entry.model_type.replace(/[-_]/g, '');
+      if (normalizedModelType) {
+        const normalizedAllow = allow.map(t => t.replace(/[-_]/g, ''));
+        const normalizedDeny = deny.map(t => t.replace(/[-_]/g, ''));
+        if (normalizedDeny.includes(normalizedModelType)) { entry.classification = 'encoder'; entry.confidence = 'high'; return entry; }
+        if (normalizedAllow.includes(normalizedModelType)) { entry.classification = 'gen'; entry.confidence = 'high'; return entry; }
+      }
       const arch = entry.architectures;
       if (arch && Array.isArray(arch)) {
         for (let i = 0; i < arch.length; i++) {
@@ -238,8 +249,34 @@ export async function* listChatModelsIterator(params = {}) {
         return /tokenizer|vocab|merges|sentencepiece/i.test(String(name));
       });
 
-      // Some listing entries may not expose siblings; fall back to pipeline_tag heuristic
-      if (!hasTokenizer && (!pipeline || !pipeline.toLowerCase().includes('text-generation'))) continue;
+      // Check for ONNX model files that transformers.js needs
+      const hasOnnxModel = siblings.some((s) => {
+        if (!s) return false;
+        let name = null;
+        if (typeof s === 'string') name = s;
+        else if (typeof s === 'object') name = s.rfilename || s.name || s.path || s.filename || s.repo_file || s.file || null;
+        if (!name) return false;
+        // Look for ONNX files - transformers.js needs various ONNX model files
+        return /onnx\/.*\.onnx|onnx\\.*\.onnx|.*model.*\.onnx|.*decoder.*\.onnx/i.test(String(name));
+      });
+
+      // Filter out models that lack required files
+      // Models must have both tokenizer files AND ONNX model files, OR be auth-protected
+      if (!hasTokenizer || !hasOnnxModel) {
+        // Only keep if it's likely auth-protected or has text-generation pipeline with both files
+        if (!pipeline || !pipeline.toLowerCase().includes('text-generation')) continue;
+        if (!hasTokenizer) continue; // Always require tokenizer
+      }
+
+      // Check if model explicitly supports transformers.js
+      const isTransformersJsReady = (m.library_name === 'transformers.js') || 
+        (Array.isArray(m.tags) && m.tags.includes('transformers.js')) ||
+        (Array.isArray(m.tags) && m.tags.includes('onnx'));
+
+      // Preserve flags for later filtering
+      m.hasTokenizer = hasTokenizer;
+      m.hasOnnxModel = hasOnnxModel;
+      m.isTransformersJsReady = isTransformersJsReady;
 
       survivors.push(m);
     }
@@ -311,11 +348,21 @@ export async function* listChatModelsIterator(params = {}) {
     await Promise.all(pool);
 
     // final
-  // Select up to 20 non-auth models and 20 auth-required models to avoid returning a very large list.
+  // Select models: auth-protected regardless of classification, or generation-capable with both tokenizers and ONNX files
+  // Prioritize transformers.js-ready models
   const authRequired = results.filter(r => r.classification === 'auth-protected').slice(0, 50);
-  const nonAuth = results.filter(r => r.classification !== 'auth-protected').slice(0, 50);
+  const genCapable = results.filter(r => r.classification === 'gen' && r.hasTokenizer && r.hasOnnxModel);
+  
+  // Sort generation-capable models: transformers.js-ready first, then others
+  genCapable.sort((a, b) => {
+    if (a.isTransformersJsReady && !b.isTransformersJsReady) return -1;
+    if (!a.isTransformersJsReady && b.isTransformersJsReady) return 1;
+    return 0;
+  });
+  
+  const nonAuth = genCapable.slice(0, 50);
   const selected = nonAuth.concat(authRequired);
-  const models = selected.map(r => ({ id: r.id, model_type: r.model_type, architectures: r.architectures, classification: r.classification, confidence: r.confidence, fetchStatus: r.fetchStatus }));
+  const models = selected.map(r => ({ id: r.id, model_type: r.model_type, architectures: r.architectures, classification: r.classification, confidence: r.confidence, fetchStatus: r.fetchStatus, hasTokenizer: r.hasTokenizer, hasOnnxModel: r.hasOnnxModel, isTransformersJsReady: r.isTransformersJsReady }));
   const meta = { fetched: listing.length, filtered: survivors.length, errors, selected: { nonAuth: nonAuth.length, authRequired: authRequired.length, total: models.length } };
   if (params && params.debug) meta.counters = Object.assign({}, counters);
   yield { status: 'done', models, meta };

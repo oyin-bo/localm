@@ -18,16 +18,29 @@ export async function handlePrompt({ promptMarkdown, workerConnection }) {
     return serializer(view.state.doc);
   });
 
+  // If the user typed a slash command like `/owner/model-name`, treat it as a direct
+  // load-model request and do not treat it as a chat prompt.
+  const trimmed = (promptMarkdown || '').trim();
+  if (trimmed.startsWith('/') && trimmed.length > 1) {
+    const modelId = trimmed.slice(1).trim();
+    outputMessage(`Loading model: ${modelId}...`);
+    try {
+      await workerConnection.loadModel(modelId);
+      outputMessage(`Model ${modelId} loaded successfully!`);
+    } catch (error) {
+      outputMessage(`Error loading model ${modelId}: ${error.message}`);
+    }
+    return;
+  }
+
   const formatted = `**Question:**\n> ${promptMarkdown.replaceAll('\n', '\n> ')}`;
   outputMessage(formatted);
 
   outputMessage('Processing your request...');
   try {
-  // Concatenate history and the new prompt into a single prompt string
+    // Concatenate history and the new prompt into a single prompt string
     const combinedPrompt = promptMarkdown;
-      // historyText ? (historyText + '\n\n' + promptMarkdown) :
-      //   promptMarkdown;
-  const promptOutput = await workerConnection.runPrompt(combinedPrompt);
+    const promptOutput = await workerConnection.runPrompt(combinedPrompt);
     outputMessage('**Reply:**\n' + promptOutput);
   } catch (error) {
     outputMessage('**Error:** ' + error.message);
