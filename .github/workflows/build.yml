@@ -39,10 +39,7 @@ jobs:
         with:
           name: github-pages
           path: |
-            ./
-            !node_modules/**/*
-            !.git/
-            !.github/
+            ./index*.*
 
   deploy:
     environment:
