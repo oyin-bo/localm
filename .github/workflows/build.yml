@@ -31,7 +31,7 @@ jobs:
         run: npm install # Installs your project's npm dependencies.
 
       - name: Build project
-        run: npm run build && cp ./index*.* ./dist/ # Runs your project's build script (e.g., Vite, esbuild)
+        run: npm run build -- --outfile=./dist/index.js && cp index.html ./dist/index.html # Runs your project's build script (e.g., Vite, esbuild)
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
