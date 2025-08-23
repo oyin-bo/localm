@@ -59,19 +59,42 @@ export function bootWorker() {
 
   async function handleRunPrompt({ prompt, modelName = selectedModel, id, options }) {
     try {
-      const pipe = await modelCache.getModel({ modelName });
-      // run the pipeline
-      if (!pipe) throw new Error('pipeline not available');
+      const engine = await modelCache.getModel({ modelName });
+      if (!engine) throw new Error('engine not available');
+      
       self.postMessage({ id, type: 'status', status: 'inference-start', model: modelName });
-      const out = await pipe(prompt, {
-        max_new_tokens: 250,        // Increase from default
-        temperature: 0.7,
-        do_sample: true,
-        pad_token_id: pipe.tokenizer.eos_token_id,
-        return_full_text: false,     // Only return the generated text
-        ...options
-      });
-      const text = extractText(out);
+      
+      // Duck-typing to detect engine type and route accordingly
+      let text;
+      if (/** @type {any} */(engine).chat?.completions?.create) {
+        // WebLLM engine detected
+        try {
+          const webllmEngine = /** @type {any} */(engine);
+          const response = await webllmEngine.chat.completions.create({
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: options?.max_new_tokens ?? 250,
+            temperature: options?.temperature ?? 0.7
+          });
+          text = response.choices[0]?.message?.content ?? '';
+        } catch (err) {
+          console.log(`WebLLM inference failed for ${modelName}: ${err.message}`);
+          throw err; // Re-throw since we can't easily fallback mid-inference
+        }
+      } else if (typeof engine === 'function') {
+        // Transformers.js pipeline detected
+        const out = await engine(prompt, {
+          max_new_tokens: 250,
+          temperature: 0.7,
+          do_sample: true,
+          pad_token_id: engine.tokenizer?.eos_token_id,
+          return_full_text: false,
+          ...options
+        });
+        text = extractText(out);
+      } else {
+        throw new Error('Unknown engine type');
+      }
+      
       self.postMessage({ id, type: 'status', status: 'inference-done', model: modelName });
       self.postMessage({ id, type: 'response', result: text });
     } catch (err) {

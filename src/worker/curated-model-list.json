@@ -1,5 +1,31 @@
 [
   {
+    "id": "mlc-ai/Llama-3.1-8B-Instruct-q4f32_1-MLC",
+    "name": "Llama 3.1 8B Instruct q4f32",
+    "model_type": "llama",
+    "architectures": ["llama"],
+    "classification": "gen",
+    "confidence": "high",
+    "size_hint": "58Mb",
+    "fetchStatus": "ok",
+    "hasTokenizer": true,
+    "hasOnnxModel": true,
+    "isTransformersJsReady": true
+  },
+  {
+    "id": "mlc-ai/gemma-2-9b-it-q4f16_1-MLC",
+    "name": "Gemma 2 9B IT q4f16",
+    "model_type": "gemma",
+    "architectures": ["gemma"],
+    "classification": "gen",
+    "confidence": "high",
+    "size_hint": "5Gb",
+    "fetchStatus": "ok",
+    "hasTokenizer": true,
+    "hasOnnxModel": true,
+    "isTransformersJsReady": true
+  },
+  {
     "id": "Xenova/llama2.c-stories15M",
     "name": "Llama2.c Stories 15M",
     "model_type": "llama",
