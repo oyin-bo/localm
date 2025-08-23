@@ -1,2 +1,4 @@
 /node_modules
 /20k-models.json
+/index*.js*
+/index*.css*
