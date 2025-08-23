@@ -3,6 +3,8 @@
 import { ModelCache } from './model-cache';
 import { listChatModelsIterator } from './list-chat-models.js';
 
+import curatedList from './curated-model-list.json' assert { type: 'json' };
+
 export function bootWorker() {
   const modelCache = new ModelCache();
   let selectedModel = modelCache.knownModels[0];
@@ -27,9 +29,7 @@ export function bootWorker() {
   async function handleMessage({ data }) {
     const { id } = data;
     try {
-      if (data.type === 'listModels') {
-        self.postMessage({ id, type: 'response', result: modelCache.knownModels });
-      } else if (data.type === 'listChatModels') {
+      if (data.type === 'listChatModels') {
         // kick off the long-running listing/classification task
         handleListChatModels(data).catch(err => {
           self.postMessage({ id, type: 'error', error: String(err) });
@@ -74,6 +74,10 @@ export function bootWorker() {
 
   // Implementation of the listChatModels worker action using the async-iterator action.
   async function handleListChatModels({ id, params = {} }) {
+
+    self.postMessage({ id, type: 'response', result: { models: curatedList } });
+    return;
+
     const iterator = listChatModelsIterator(params);
     let sawDone = false;
     // batching buffer
@@ -99,26 +103,28 @@ export function bootWorker() {
       }
     }
 
-    activeTasks.set(id, { abort: () => { try { iterator.return(); } catch (e) {} } });
+    activeTasks.set(id, { abort: () => iterator.return() });
+    let lastBatchDelta;
     try {
       for await (const delta of iterator) {
-        try { enqueueProgress(delta); } catch (e) {}
+        try { enqueueProgress(delta); } catch (e) { }
+        if (delta.models) lastBatchDelta = delta;
         if (delta && delta.status === 'done') {
           sawDone = true;
-          // flush any remaining progress messages synchronously
-          try { flushBatch(); } catch (e) {}
-          try { self.postMessage({ id, type: 'response', result: { models: delta.models, meta: delta.meta } }); } catch (e) {}
         }
       }
 
+      // flush any remaining progress messages synchronously
+      flushBatch();
       if (!sawDone) {
         // iterator exited early (likely cancelled)
-        try { flushBatch(); } catch (e) {}
-        try { self.postMessage({ id, type: 'response', result: { cancelled: true } }); } catch (e) {}
+        self.postMessage({ id, type: 'response', result: { cancelled: true } });
+      } else {
+        self.postMessage({ id, type: 'response', result: lastBatchDelta });
       }
     } catch (err) {
-      try { flushBatch(); } catch (e) {}
-      try { self.postMessage({ id, type: 'error', error: String(err), code: err.code || null }); } catch (e) {}
+      flushBatch();
+      self.postMessage({ id, type: 'error', error: String(err), code: err.code || null });
     } finally {
       activeTasks.delete(id);
     }

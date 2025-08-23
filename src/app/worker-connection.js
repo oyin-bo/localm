@@ -7,7 +7,6 @@ export function workerConnection() {
 
   const connection = {
     loaded: workerLoaded.then(worker => ({ env: worker.env })),
-    listModels,
     loadModel,
     runPrompt,
     listChatModels
@@ -73,12 +72,6 @@ export function workerConnection() {
         reject(err);
       }
     });
-  }
-
-  async function listModels() {
-    await workerLoaded;
-    const { send } = await workerLoaded;
-    return send({ type: 'listModels' });
   }
 
   /**
