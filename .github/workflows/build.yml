@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4 # Checks out your repository code
+        with:
+          fetch-depth: 1 # <--- Added this line for shallow clone
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,7 +38,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: github-pages
-          pattern: ./index*.*
+          path: ./
+          pattern: index*.*
 
   deploy:
     environment:
