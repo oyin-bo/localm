@@ -29,17 +29,15 @@ jobs:
 
       - name: Install dependencies
         run: npm install # Installs your project's npm dependencies.
-                         # This will be much faster if a cache hit occurs.
 
       - name: Build project
-        run: npm run build # Runs your project's build script (e.g., Vite, esbuild)
+        run: npm run build && cp ./index*.* ./dist/ # Runs your project's build script (e.g., Vite, esbuild)
 
       - name: Upload artifact for GitHub Pages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
-          path: |
-            ./index*.*
+          path: ./dist
 
   deploy:
     environment:
