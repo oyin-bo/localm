@@ -4,7 +4,9 @@ emoji: 🚀
 colorFrom: purple
 colorTo: indigo
 sdk: static
-app_build_command: "npm install && npm run build -- --outfile=./dist/index.js && cp index.html ./dist/index.html"
+app_build_command: >-
+  npm install && npm run build -- --outfile=./dist/index.js && cp index.html
+  ./dist/index.html
 app_file: "./dist/index.html" # This is where Vite typically outputs its index.html
 ---
 
