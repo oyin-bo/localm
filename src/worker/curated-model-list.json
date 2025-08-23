@@ -51,31 +51,6 @@
     }
   },
   {
-    "id": "Xenova/all-MiniLM-L6-v2",
-    "name": "all-MiniLM-L6-v2",
-    "model_type": "sentence-transformers",
-    "architectures": ["MiniLM"],
-    "classification": "encoder",
-    "confidence": "high",
-    "fetchStatus": "ok",
-    "hasTokenizer": true,
-    "hasOnnxModel": true,
-    "isTransformersJsReady": true,
-    "info": {
-      "display_name": "all-MiniLM-L6-v2 (Xenova mirror)",
-      "params": "≈22M",
-      "params_count": 22000000,
-      "architecture": "MiniLM (distilled transformer)",
-      "context_window": 512,
-      "hf_url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2",
-      "recommended_runtime": "transformers.js (wasm)",
-      "is_mobile_capable": true,
-      "verified": false,
-      "assumed": true,
-      "notes": "Encoder-style model (worker prefilter normally excludes sentence-transformers from generation lists)."
-    }
-  },
-  {
     "id": "Xenova/distilgpt2",
     "name": "distilgpt2",
     "model_type": "gpt2",
@@ -109,6 +84,7 @@
     "fetchStatus": "ok",
     "hasTokenizer": true,
     "hasOnnxModel": true,
+    "size_hint": "500Mb",
     "isTransformersJsReady": true,
     "info": {
       "display_name": "GPT-2 (Xenova mirror)",
@@ -134,6 +110,7 @@
     "hasTokenizer": true,
     "hasOnnxModel": false,
     "isTransformersJsReady": false,
+    "requiresAuth": true,
     "info": {
       "display_name": "Qwen-2.5 Small Instruct (Xenova mirror)",
       "params": "≈2.5B (estimate)",

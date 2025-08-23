@@ -63,7 +63,14 @@ export function bootWorker() {
       // run the pipeline
       if (!pipe) throw new Error('pipeline not available');
       self.postMessage({ id, type: 'status', status: 'inference-start', model: modelName });
-      const out = await pipe(prompt, options || {});
+      const out = await pipe(prompt, {
+        max_new_tokens: 250,        // Increase from default
+        temperature: 0.7,
+        do_sample: true,
+        pad_token_id: pipe.tokenizer.eos_token_id,
+        return_full_text: false,     // Only return the generated text
+        ...options
+      });
       const text = extractText(out);
       self.postMessage({ id, type: 'status', status: 'inference-done', model: modelName });
       self.postMessage({ id, type: 'response', result: text });

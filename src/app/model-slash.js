@@ -46,7 +46,7 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
   // Function to rebuild menu content
   function rebuildMenu() {
     menu.innerHTML = '';
-    
+
     const availableModels = getModels();
 
     if (availableModels.length === 0) {
@@ -70,7 +70,7 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
       const icon = document.createElement('span');
       icon.className = 'model-icon';
       icon.textContent = model.requiresAuth ? '🔒' : '🤖';
-      
+
       // Create text container
       const textContainer = document.createElement('div');
       textContainer.className = 'model-text-container';
@@ -79,17 +79,17 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
       name.className = 'name';
       name.textContent = model.name;
       textContainer.appendChild(name);
-      
+
       if (model.size) {
         const subtitle = document.createElement('div');
         subtitle.className = 'size';
         subtitle.textContent = `(${model.size})`;
         textContainer.appendChild(subtitle);
       }
-      
+
       item.appendChild(icon);
       item.appendChild(textContainer);
-      
+
       // Add auth indicator if needed
       if (model.requiresAuth) {
         const authSpan = document.createElement('span');
@@ -100,7 +100,7 @@ export function createModelSlashPlugin({ getModels, onSlashCommand }) {
 
       modelList.appendChild(item);
     });
-    
+
     menu.appendChild(modelList);
   }
 

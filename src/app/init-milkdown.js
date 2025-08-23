@@ -105,8 +105,10 @@ export async function initMilkdown({
     availableModels = entries.map(e => ({
       id: e.id || e.modelId || '',
       name: e.name || (e.id || e.modelId || '').split('/').pop(),
-      size: '',
-      requiresAuth: e.classification === 'auth-protected'
+      size:
+        ((e.size_hint || '') + ' ' +
+        (e.info?.params || '')).trim(),
+      requiresAuth: e.classification === 'auth-protected' || e.requiresAuth,
     }));
 
     outputMessage('Models discovered: **' + availableModels.length + '**');
