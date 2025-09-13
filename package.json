@@ -20,9 +20,9 @@
   },
   "homepage": "https://github.com/oyin-bo/localm#readme",
   "dependencies": {
-    "@huggingface/transformers": "^3.7.2",
-    "@milkdown/crepe": "^7.15.3",
-    "@mlc-ai/web-llm": "^0.2.79",
-    "esbuild": "^0.25.9"
+    "@huggingface/transformers": "*",
+    "@milkdown/crepe": "*",
+    "@mlc-ai/web-llm": "*",
+    "esbuild": "*"
   }
 }

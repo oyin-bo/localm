@@ -13,17 +13,19 @@
     "isTransformersJsReady": true
   },
   {
-    "id": "mlc-ai/gemma-2-9b-it-q4f16_1-MLC",
-    "name": "Gemma 2 9B IT q4f16",
+    "id": "/models/google/gemma-2b/resolve/main",
+    "name": "Gemma 2B (local /models/google/gemma-2b/resolve/main)",
     "model_type": "gemma",
     "architectures": ["gemma"],
     "classification": "gen",
-    "confidence": "high",
-    "size_hint": "5Gb",
-    "fetchStatus": "ok",
+    "confidence": "medium",
+    "size_hint": "~2GB",
+    "fetchStatus": "pending-local",
     "hasTokenizer": true,
-    "hasOnnxModel": true,
-    "isTransformersJsReady": true
+    "hasOnnxModel": false,
+    "isTransformersJsReady": false,
+    "requiresAuth": false,
+    "info": { "local_url": "/models/google/gemma-2b/resolve/main", "notes": "Place downloaded HF-style repo under ./models/google/gemma-2b so files resolve at /models/google/gemma-2b/resolve/main/..." }
   },
   {
     "id": "Xenova/llama2.c-stories15M",
